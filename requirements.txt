@@ -1,0 +1,6 @@
+tqdm
+numpy
+pandas
+pyfastx
+networkx
+pyexeggutor>=2024.11.18
