@@ -14,63 +14,95 @@ The methodology used for dereplicating genomes into pangenomes and proteins into
 
 * Steinegger, M., S??ding, J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat Biotechnol 35, 1026???1028 (2017). https://doi.org/10.1038/nbt.3988
 
+---
+
 ## Usage
 
 ### Clustering genomes into pangenomes
+
+#### mode: batch
+Designed for working with mixed cellular and viral pangenomes. 
+
 ```bash
 # Default (Batch)
 binning_directory="Analysis/veba_output/binning"
-manifest_file="Analysis/misc/genomes_table.tsv"
+genome_manifest_file="Analysis/misc/genomes_table.tsv"
 output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} | cut -f1,3,4,5 > ${manifest_file}
+compile-genomes-table.py -i ${binning_directory} | cut -f1,3,4,5 > ${genome_manifest_file}
 # Input: [organism_type, id_genome, genome_filepath, protein_filepath]
-pangenomium cluster-genomes -i ${manifest_file} -m batch -o ${output_directory}
+pangenomium cluster-genomes -i ${genome_manifest_file} -m batch -o ${output_directory}
+```
 
+#### mode: veba
+Designed to work as direct replacement for VEBA's cluster module. 
+
+```bash
 # VEBA
 binning_directory="Analysis/veba_output/binning"
-manifest_file="Analysis/misc/genomes_table.tsv"
+genome_manifest_file="Analysis/misc/genomes_table.tsv"
 output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} > ${manifest_file}
+compile-genomes-table.py -i ${binning_directory} > ${genome_manifest_file}
 # Input: [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
-pangenomium cluster-genomes -i ${manifest_file} -m veba -o ${output_directory}
+pangenomium cluster-genomes -i ${genome_manifest_file} -m veba -o ${output_directory}
+```
 
+#### mode: cellular
+Defaults set for prokaryotic and/or eukaryotic genomes
+
+```bash
 # Cellular
 ls path/to/cellular_genomes/*.fa.gz > cellular_genome_filepaths.list
 output_directory="Analysis/pangenomium_output"
 # Input: path/to/genome.fa[.gz] on each line
 pangenomium cluster-genomes -g ${genome_filepaths} -m cellular -o ${output_directory} -x fa.gz
+```
 
+Can also pipe filepaths instead:
+
+```bash
+ls path/to/cellular_genomes/*.fa.gz | pangenomium cluster-genomes -g ${genome_filepaths} -m cellular -o ${output_directory} -x fa.gz
+```
+
+#### mode: viral
+Defaults set for viral genomes
+
+```bash
 # Viral
 ls path/to/viral_genomes/*.fa.gz > viral_genome_filepaths.list
 output_directory="Analysis/pangenomium_output"
 # Input: path/to/genome.fa[.gz] on each line
 pangenomium cluster-genomes -g ${genome_filepaths} -m viral -o ${output_directory} -x fa.gz
 ```
+---
 
 ### Clustering proteins from pangenomes into orthologs
 
+#### mode: batch
+Designed for working with mixed cellular and viral pangenomes. 
+
 ```bash
 # Default (Batch)
-...
+
+# Input_1: $genome_manifest_file [organism_type, id_genome, genome_filepath, protein_filepath]
+# Input_2: $pangenome_file [id_genome, id_pangenome]
+# Output: $genome_manifest_file [id_genome, id_pangenome, protein_filepath]
+
 pangenome_file=${output_directory}/genome_clusters.tsv
-# Input_1: $manifest_file [organism_type, id_genome, genome_filepath, protein_filepath]
-# Input_2: $pangenome_file [id_genome, id_pangenome]
-pangenomium cluster-proteins -i ${manifest_file} -c ${pangenome_file} -m batch -o ${output_directory}
+pangenome_manifest_file="Analysis/misc/pangenomes_table.tsv"
+compile-pangenomes-table.py -i ${genome_manifest_file} -c ${pangenome_file} > ${pangenome_manifest_file}
 
-# VEBA
-...
-# Input_1: $manifest_file [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
-# Input_2: $pangenome_file [id_genome, id_pangenome]
-pangenomium cluster-proteins -i ${manifest_file} -c ${pangenome_file} -m veba -o ${output_directory}
-
-# Custom
-# Input: $manifest_file [id_genome, id_pangenome, protein_filepath]
-pangenomium cluster-proteins -i ${manifest_file} -m custom -o ${output_directory}
-
-# Proteins
-ls path/to/cellular_genomes/*.fa.gz > cellular_genome_filepaths.list
-output_directory="Analysis/pangenomium_output"
-pangenomium cluster-genomes -g ${genome_filepaths} -m cellular -o ${output_directory} -x fa.gz
+# Input: $genome_manifest_file [id_genome, id_pangenome, protein_filepath]
+pangenomium cluster-proteins-from-pangenomes -i ${pangenome_manifest_file} -m batch -o ${output_directory}
 ```
 
-CHANGE non-viral to cellular
+#### mode: veba
+Designed to work as direct replacement for VEBA's cluster module. 
+
+```bash
+# VEBA
+...
+# Input_1: $genome_manifest_file [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
+# Input_2: $pangenome_file [id_genome, id_pangenome]
+pangenomium cluster-proteins-from-pangenomes -i ${genome_manifest_file} -c ${pangenome_file} -m veba -o ${output_directory}
+```
+
