@@ -17,6 +17,36 @@ The methodology used for dereplicating genomes into pangenomes and proteins into
 ---
 
 ## Usage
+### End-to-end for genome and protein-level pangenome clustering
+Designed for end-to-end genome and protein-level pangenome clustering.  This pipeline clusters genomes into pangenomes and then clusters proteins within pangenomes.
+
+
+#### mode: batch
+Designed for working with mixed cellular and viral pangenomes. 
+
+```bash
+# Default (Batch)
+binning_directory="Analysis/veba_output/binning"
+genome_manifest_file="Analysis/misc/genomes_table.tsv"
+output_directory="Analysis/pangenomium_output"
+compile-genomes-table.py -i ${binning_directory} | cut -f1,3,4,5 > ${genome_manifest_file}
+# Input: [organism_type, id_genome, genome_filepath, protein_filepath]
+pangenomium end-to-end -i ${genome_manifest_file} -m batch -o ${output_directory}
+```
+
+#### mode: veba
+Designed to work as direct replacement for VEBA's cluster module. 
+
+```bash
+# VEBA
+binning_directory="Analysis/veba_output/binning"
+genome_manifest_file="Analysis/misc/genomes_table.tsv"
+output_directory="Analysis/pangenomium_output"
+compile-genomes-table.py -i ${binning_directory} > ${genome_manifest_file}
+# Input: [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
+pangenomium end-to-end -i ${genome_manifest_file} -m veba -o ${output_directory}
+```
+---
 
 ### Clustering genomes into pangenomes
 
@@ -106,3 +136,11 @@ Designed to work as direct replacement for VEBA's cluster module.
 pangenomium cluster-proteins-from-pangenomes -i ${genome_manifest_file} -c ${pangenome_file} -m veba -o ${output_directory}
 ```
 
+
+### Clustering proteins into orthologs
+
+Designed for working with mixed cellular and viral pangenomes. 
+
+```bash
+ls path/to/proteins/*.faa.gz | pangenomium cluster-proteins  -o ${output_directory} -x faa.gz
+```
