@@ -62,11 +62,38 @@ def parse_input(input_path, genome_extension=None):
         
         else:
             # It's a simple list - process line by line
-            for filepath in [first_line] + [line.strip() for line in input_handle]:
-                filepath = filepath.strip()
-                if not filepath:
-                    continue
-                    
+            # First pass: collect all filepaths and check extensions
+            all_filepaths = [first_line] + [line.strip() for line in input_handle]
+            all_filepaths = [fp.strip() for fp in all_filepaths if fp.strip()]
+            
+            # Validate extension if provided
+            if genome_extension:
+                ext = genome_extension
+                if not ext.startswith("."):
+                    ext = "." + ext
+                
+                # Check how many files have the provided extension
+                files_with_ext = [fp for fp in all_filepaths if os.path.basename(fp).endswith(ext)]
+                
+                if len(files_with_ext) == 0:
+                    # No files have this extension - this is an error
+                    actual_extensions = set(os.path.splitext(os.path.basename(fp))[1] for fp in all_filepaths)
+                    raise ValueError(
+                        f"Extension mismatch: You provided extension '{genome_extension}' but none of the "
+                        f"{len(all_filepaths)} input files have this extension.\n"
+                        f"Actual extensions found: {', '.join(sorted(actual_extensions))}\n"
+                        f"Hint: Use '-x {list(actual_extensions)[0][1:]}' for '{list(actual_extensions)[0]}' files"
+                    )
+                elif len(files_with_ext) < len(all_filepaths):
+                    # Some files don't have this extension - warning
+                    from loguru import logger
+                    logger.warning(
+                        f"Extension mismatch: {len(files_with_ext)}/{len(all_filepaths)} files have "
+                        f"extension '{ext}'. Files without this extension will be parsed differently."
+                    )
+            
+            # Second pass: process filepaths
+            for filepath in all_filepaths:
                 basename = os.path.basename(filepath)
                 
                 if genome_extension:
@@ -137,8 +164,12 @@ def run(args):
     if args.n_jobs == -1:
         args.n_jobs = cpu_count()
     
-    # Setup directories
-    directories = setup_directories(args.output_directory)
+    # Setup directories with command-specific subdirectory
+    directories = setup_directories(args.output_directory, subdirectory="genome_clustering")
+    
+    # Create additional output subdirectories
+    os.makedirs(os.path.join(directories["output"], "serialization"), exist_ok=True)
+    os.makedirs(os.path.join(directories["output"], "representatives"), exist_ok=True)
     
     # Setup logger
     setup_logger(directories["log"], "cluster_genomes.log")
@@ -244,9 +275,9 @@ def run(args):
         "--cluster_prefix_zfill", str(args.cluster_prefix_zfill),
         "--cluster_label_mode", args.cluster_label_mode,
         "--identifiers", genome_identifiers_filepath,  # Provide correct IDs
-        "-g", os.path.join(directories["output"], "genome_clusters.graph.pkl"),
-        "-d", os.path.join(directories["output"], "genome_clusters.dict.pkl"),
-        "-r", os.path.join(directories["output"], "genome_representatives.tsv.gz"),
+        "-g", os.path.join(directories["output"], "serialization", "genome_clusters.graph.pkl.gz"),
+        "-d", os.path.join(directories["output"], "serialization", "genome_clusters.dict.pkl.gz"),
+        "-r", os.path.join(directories["output"], "representatives", "genome_representatives.tsv.gz"),
     ]
     
     # Only add cluster_suffix if non-empty

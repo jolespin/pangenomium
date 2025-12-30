@@ -142,8 +142,12 @@ def run(args):
     if args.n_jobs == -1:
         args.n_jobs = cpu_count()
     
-    # Setup directories
-    directories = setup_directories(args.output_directory)
+    # Setup directories with command-specific subdirectory
+    directories = setup_directories(args.output_directory, subdirectory="protein_clustering")
+    
+    # Create additional output subdirectories
+    os.makedirs(os.path.join(directories["output"], "serialization"), exist_ok=True)
+    os.makedirs(os.path.join(directories["output"], "representatives"), exist_ok=True)
     
     # Setup logger
     setup_logger(directories["log"], "cluster_proteins.log")
@@ -233,9 +237,9 @@ def run(args):
         "--cluster_prefix", args.cluster_prefix,
         "--cluster_prefix_zfill", str(args.cluster_prefix_zfill),
         "--cluster_label_mode", args.cluster_label_mode,
-        "-g", os.path.join(directories["output"], "protein_clusters.graph.pkl"),
-        "-d", os.path.join(directories["output"], "protein_clusters.dict.pkl"),
-        "-r", os.path.join(directories["output"], "protein_representatives.tsv.gz"),
+        "-g", os.path.join(directories["output"], "serialization", "protein_clusters.graph.pkl.gz"),
+        "-d", os.path.join(directories["output"], "serialization", "protein_clusters.dict.pkl.gz"),
+        "-r", os.path.join(directories["output"], "representatives", "protein_representatives.tsv.gz"),
     ]
     
     # Only add cluster_suffix if non-empty

@@ -8,18 +8,42 @@ def create_directory(path):
     os.makedirs(path, exist_ok=True)
     return path
 
-def setup_directories(output_directory):
+def setup_directories(output_directory, subdirectory=None):
     """Setup standard directory structure for pangenomium workflows
     
+    Args:
+        output_directory: Base output directory
+        subdirectory: Optional subdirectory name for command-specific isolation
+                     (e.g., 'genome_clustering', 'protein_clustering')
+    
     Returns dict with keys: project, output, intermediate, log, tmp
+    
+    Note: If subdirectory is provided, intermediate and tmp are namespaced
+          but output and log remain shared for easier access to results
     """
     directories = {
         "project": create_directory(output_directory),
     }
+    
+    # Shared directories (all commands write here)
     directories["output"] = create_directory(os.path.join(directories["project"], "output"))
-    directories["intermediate"] = create_directory(os.path.join(directories["project"], "intermediate"))
     directories["log"] = create_directory(os.path.join(directories["project"], "log"))
-    directories["tmp"] = create_directory(os.path.join(directories["project"], "tmp"))
+    
+    # Command-specific directories (isolated per command)
+    if subdirectory:
+        directories["intermediate"] = create_directory(
+            os.path.join(directories["project"], "intermediate", subdirectory)
+        )
+        directories["tmp"] = create_directory(
+            os.path.join(directories["project"], "tmp", subdirectory)
+        )
+    else:
+        directories["intermediate"] = create_directory(
+            os.path.join(directories["project"], "intermediate")
+        )
+        directories["tmp"] = create_directory(
+            os.path.join(directories["project"], "tmp")
+        )
     
     # Set TMPDIR environment variable
     os.environ["TMPDIR"] = directories["tmp"]

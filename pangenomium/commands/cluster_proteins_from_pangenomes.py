@@ -147,8 +147,11 @@ def run(args):
     if args.n_jobs == -1:
         args.n_jobs = cpu_count()
     
-    # Setup directories
-    directories = setup_directories(args.output_directory)
+    # Setup directories with command-specific subdirectory
+    directories = setup_directories(args.output_directory, subdirectory="pangenome_protein_clustering")
+    
+    # Create additional output subdirectories for comprehensive output
+    os.makedirs(os.path.join(directories["output"], "pangenome_tables"), exist_ok=True)
     
     # Setup logger
     setup_logger(directories["log"], "cluster_proteins_from_pangenomes.log")
