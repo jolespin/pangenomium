@@ -661,7 +661,7 @@ def generate_comprehensive_output(genome_data, genome_clusters_file, protein_clu
     # =============================
     if protein_clusters_file and not args.no_representative_sequences:
         logger.info("Writing representative sequences...")
-        with open_file_writer(os.path.join(directories["output"], "representative_sequences.faa")) as f:
+        with open_file_writer(os.path.join(directories["output"], "representatives", "representative_sequences.faa.gz")) as f:
             for id_proteincluster, id_representative in tqdm(proteincluster_to_representative.items(),
                                                             desc="Writing representatives", unit="cluster"):
                 seq = protein_to_sequence[id_representative]
@@ -746,7 +746,7 @@ def generate_comprehensive_output(genome_data, genome_clusters_file, protein_clu
                 dst_dict = os.path.join(directories["output"], "serialization", f"{org_prefix}.dict.pkl.gz")
                 os.system(f"cp {src_dict} {dst_dict}")
             if os.path.exists(src_repr):
-                dst_repr = os.path.join(directories["output"], "representatives", f"{org_prefix}.representatives.tsv")
+                dst_repr = os.path.join(directories["output"], "representatives", f"{org_prefix}.representatives.tsv.gz")
                 os.system(f"cp {src_repr} {dst_repr}")
     else:
         # Batch mode: just copy without organism prefix
