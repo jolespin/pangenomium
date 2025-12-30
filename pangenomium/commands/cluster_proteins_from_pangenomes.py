@@ -9,7 +9,7 @@ from collections import defaultdict
 import pandas as pd
 from tqdm import tqdm
 from loguru import logger
-from pyexeggutor import RunShellCommand, format_header
+from pyexeggutor import RunShellCommand, format_header, open_file_writer
 from .. import __version__
 from ..utils import setup_directories, setup_logger, print_header
 
@@ -23,13 +23,13 @@ def parse_input(args, directories):
         df.columns = ["id_genome", "id_pangenome", "protein_filepath"]
         
         for pangenome_id, group in df.groupby("id_pangenome"):
-            # Create concatenated protein file for this pangenome
+            # Create concatenated protein file for this pangenome (gzipped)
             protein_fasta = os.path.join(
                 directories["intermediate"],
-                f"{pangenome_id}_proteins.faa"
+                f"{pangenome_id}_proteins.faa.gz"
             )
             
-            with open(protein_fasta, "w") as f_out:
+            with open_file_writer(protein_fasta) as f_out:
                 for _, row in group.iterrows():
                     filepath = row["protein_filepath"]
                     
@@ -68,10 +68,10 @@ def parse_input(args, directories):
         for pangenome_id, group in df_merged.groupby("id_pangenome"):
             protein_fasta = os.path.join(
                 directories["intermediate"],
-                f"{pangenome_id}_proteins.faa"
+                f"{pangenome_id}_proteins.faa.gz"
             )
             
-            with open(protein_fasta, "w") as f_out:
+            with open_file_writer(protein_fasta) as f_out:
                 for _, row in group.iterrows():
                     filepath = row["protein_filepath"]
                     
@@ -183,7 +183,8 @@ def run(args):
         
         # Run MMseqs2
         mmseqs_prefix = os.path.join(directories["intermediate"], f"{pangenome_id}_mmseqs2")
-        edgelist_file = os.path.join(directories["intermediate"], f"{pangenome_id}_edgelist.tsv")
+        edgelist_file = os.path.join(directories["intermediate"], f"{pangenome_id}_edgelist.tsv.gz")
+        edgelist_temp = os.path.join(directories["intermediate"], f"{pangenome_id}_edgelist.tsv")
         
         cmd = [
             "mmseqs", algorithm,
@@ -201,7 +202,9 @@ def run(args):
         
         cmd.extend([
             "&&",
-            "mv", f"{mmseqs_prefix}_cluster.tsv", edgelist_file,
+            "mv", f"{mmseqs_prefix}_cluster.tsv", edgelist_temp,
+            "&&",
+            "gzip", edgelist_temp,
             "&&",
             "rm", "-rf",
             f"{mmseqs_prefix}_all_seqs.fasta",
@@ -250,7 +253,7 @@ def run(args):
         logger.info("="*80)
         logger.info("Concatenating cluster files")
         logger.info("="*80)
-        final_output = os.path.join(directories["output"], "protein_clusters.tsv.gz")
+        final_output = os.path.join(directories["output"], "proteins_to_orthologs.tsv.gz")
         
         cmd = ["cat"] + all_cluster_files + [">", final_output]
         

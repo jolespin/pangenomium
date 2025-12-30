@@ -261,7 +261,7 @@ def run(args):
     logger.info("Step 2: Compiling genome clusters")
     logger.info("="*80)
     
-    genome_clusters = os.path.join(directories["output"], "genome_clusters.tsv.gz")
+    genome_clusters = os.path.join(directories["output"], "genomes_to_pangenomes.tsv.gz")
     
     cmd = [
         "edgelist-to-clusters.py",

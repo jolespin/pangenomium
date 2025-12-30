@@ -148,6 +148,7 @@ def register_parser(subparsers):
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
     parser_utility.add_argument("-p", "--n_jobs", type=int, default=1, help="Threads [Default: 1]")
+    parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
     
     # Genome clustering arguments
     parser_genome = parser.add_argument_group('Genome clustering arguments')
@@ -270,7 +271,7 @@ def run(args):
     logger.info("="*80)
     
     genome_clustering_dir = os.path.join(directories["project"], "genome_clustering")
-    genome_clusters_file = os.path.join(genome_clustering_dir, "output", "genome_clusters.tsv.gz")
+    genome_clusters_file = os.path.join(genome_clustering_dir, "output", "genomes_to_pangenomes.tsv.gz")
     
     cmd = [
         "pangenomium", "cluster-genomes",
@@ -342,7 +343,7 @@ def run(args):
         logger.info("")
         
         protein_clustering_dir = os.path.join(directories["project"], "protein_clustering")
-        protein_clusters_file = os.path.join(protein_clustering_dir, "output", "protein_clusters.tsv.gz")
+        protein_clusters_file = os.path.join(protein_clustering_dir, "output", "proteins_to_orthologs.tsv.gz")
         
         cmd = [
             "pangenomium", "cluster-proteins-from-pangenomes",
@@ -383,6 +384,48 @@ def run(args):
         directories=directories,
         args=args,
     )
+    
+    # ===============================
+    # Step 6: Cleanup temporary directories
+    # ===============================
+    if not args.keep_temporary:
+        logger.info("="*80)
+        logger.info("Step 6: Cleaning up temporary directories")
+        logger.info("="*80)
+        
+        import shutil
+        cleanup_dirs = []
+        
+        # Main project tmp and intermediate
+        if os.path.exists(directories["tmp"]):
+            cleanup_dirs.append(directories["tmp"])
+        if os.path.exists(directories["intermediate"]):
+            cleanup_dirs.append(directories["intermediate"])
+        
+        # Genome clustering tmp and intermediate
+        genome_clustering_tmp = os.path.join(directories["project"], "genome_clustering", "tmp")
+        genome_clustering_intermediate = os.path.join(directories["project"], "genome_clustering", "intermediate")
+        if os.path.exists(genome_clustering_tmp):
+            cleanup_dirs.append(genome_clustering_tmp)
+        if os.path.exists(genome_clustering_intermediate):
+            cleanup_dirs.append(genome_clustering_intermediate)
+        
+        # Protein clustering tmp and intermediate
+        if has_proteins:
+            protein_clustering_tmp = os.path.join(directories["project"], "protein_clustering", "tmp")
+            protein_clustering_intermediate = os.path.join(directories["project"], "protein_clustering", "intermediate")
+            if os.path.exists(protein_clustering_tmp):
+                cleanup_dirs.append(protein_clustering_tmp)
+            if os.path.exists(protein_clustering_intermediate):
+                cleanup_dirs.append(protein_clustering_intermediate)
+        
+        # Remove directories
+        for cleanup_dir in cleanup_dirs:
+            logger.info(f"Removing: {cleanup_dir}")
+            shutil.rmtree(cleanup_dir, ignore_errors=True)
+        
+        logger.info(f"Cleaned up {len(cleanup_dirs)} temporary directories")
+        logger.info("")
     
     logger.info("="*80)
     logger.info("Complete!")
@@ -674,8 +717,8 @@ def generate_comprehensive_output(genome_data, genome_clusters_file, protein_clu
         logger.info("Writing core pangenome sequences...")
         for id_genomecluster, core_clusters in tqdm(genomecluster_to_corepangenome.items(),
                                                     desc="Writing core sequences", unit="pangenome"):
-            # Protein sequences
-            faa_file = os.path.join(directories["output"], "pangenome_core_sequences", f"{id_genomecluster}.faa")
+            # Protein sequences (gzipped)
+            faa_file = os.path.join(directories["output"], "pangenome_core_sequences", f"{id_genomecluster}.faa.gz")
             with open_file_writer(faa_file) as f:
                 for id_proteincluster in sorted(core_clusters):
                     if id_proteincluster not in proteincluster_to_representative:
@@ -684,9 +727,9 @@ def generate_comprehensive_output(genome_data, genome_clusters_file, protein_clu
                     seq = protein_to_sequence[id_representative]
                     print(f">{id_proteincluster} {id_representative}\n{seq}", file=f)
             
-            # CDS sequences (if available)
+            # CDS sequences (if available, gzipped)
             if not protein_to_cds.empty:
-                ffn_file = os.path.join(directories["output"], "pangenome_core_sequences", f"{id_genomecluster}.ffn")
+                ffn_file = os.path.join(directories["output"], "pangenome_core_sequences", f"{id_genomecluster}.ffn.gz")
                 with open_file_writer(ffn_file) as f:
                     for id_proteincluster in sorted(core_clusters):
                         if id_proteincluster not in proteincluster_to_representative:
