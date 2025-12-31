@@ -134,7 +134,7 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("-p", "--n_jobs", type=int, default=1, help="Threads [Default: 1]")
+    parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads [Default: 1]")
     
     # Skani arguments
     parser_skani = parser.add_argument_group('Skani arguments')
@@ -161,8 +161,8 @@ def register_parser(subparsers):
 def run(args):
     """Execute cluster-genomes command"""
     
-    if args.n_jobs == -1:
-        args.n_jobs = cpu_count()
+    if args.n_threads == -1:
+        args.n_threads = cpu_count()
     
     # Setup directories with command-specific subdirectory
     directories = setup_directories(args.output_directory, subdirectory="genome_clustering")
@@ -180,7 +180,7 @@ def run(args):
     logger.info("="*80)
     print_header(
         version=__version__,
-        n_jobs=args.n_jobs,
+        n_jobs=args.n_threads,
         additional_info={
             "ANI threshold": args.ani_threshold,
             "Minimum AF": args.minimum_af,
@@ -224,7 +224,7 @@ def run(args):
         "skani", "triangle",
         "-l", genome_list_filepath,
         "-E",
-        "-t", str(args.n_jobs),
+        "-t", str(args.n_threads),
         "-o", ani_edgelist,
     ]
     

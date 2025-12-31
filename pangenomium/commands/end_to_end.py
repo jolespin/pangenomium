@@ -147,7 +147,9 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("-p", "--n_jobs", type=int, default=1, help="Threads [Default: 1]")
+    parser_utility.add_argument("--n_threads_skani", type=int, default=1, help="Threads for genome clustering (skani) [Default: 1]")
+    parser_utility.add_argument("--n_threads_mmseqs_per_task", type=int, default=1, help="Threads per MMseqs2 task [Default: 1]")
+    parser_utility.add_argument("--n_concurrent_mmseqs_tasks", type=int, default=1, help="Number of pangenomes to process in parallel [Default: 1]")
     parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
     
     # Genome clustering arguments
@@ -185,8 +187,13 @@ def register_parser(subparsers):
 def run(args):
     """Execute end-to-end command with comprehensive output generation"""
     
-    if args.n_jobs == -1:
-        args.n_jobs = cpu_count()
+    # Handle -1 (use all CPUs)
+    if args.n_threads_skani == -1:
+        args.n_threads_skani = cpu_count()
+    if args.n_threads_mmseqs_per_task == -1:
+        args.n_threads_mmseqs_per_task = cpu_count()
+    if args.n_concurrent_mmseqs_tasks == -1:
+        args.n_concurrent_mmseqs_tasks = cpu_count()
     
     assert 0 < args.minimum_core_prevalence <= 1.0, "--minimum_core_prevalence must be (0.0, 1.0]"
     
@@ -209,7 +216,7 @@ def run(args):
     logger.info("="*80)
     print_header(
         version=__version__,
-        n_jobs=args.n_jobs,
+        n_jobs=f"Genome: {args.n_threads_skani} threads | Protein: {args.n_concurrent_mmseqs_tasks} concurrent × {args.n_threads_mmseqs_per_task} threads",
         additional_info={"Mode": args.mode}
     )
     
@@ -277,7 +284,7 @@ def run(args):
         "pangenomium", "cluster-genomes",
         "-i", genome_manifest,
         "-o", genome_clustering_dir,
-        "-p", str(args.n_jobs),
+        "--n_threads", str(args.n_threads_skani),
         "--ani_threshold", str(args.ani_threshold),
         "--minimum_af", str(args.minimum_af),
         "--af_mode", args.af_mode,
@@ -349,7 +356,8 @@ def run(args):
             "pangenomium", "cluster-proteins-from-pangenomes",
             "-i", pangenome_manifest,
             "-o", protein_clustering_dir,
-            "-p", str(args.n_jobs),
+            "--n_threads_per_task", str(args.n_threads_mmseqs_per_task),
+            "--n_concurrent_tasks", str(args.n_concurrent_mmseqs_tasks),
             "-a", args.algorithm,
             "-t", str(args.minimum_identity_threshold),
             "--minimum_coverage_threshold", str(args.minimum_coverage_threshold),

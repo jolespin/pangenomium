@@ -113,7 +113,7 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("-p", "--n_jobs", type=int, default=1, help="Threads [Default: 1]")
+    parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads [Default: 1]")
     
     # MMseqs2 arguments
     parser_mmseqs = parser.add_argument_group('MMseqs2 arguments')
@@ -139,8 +139,8 @@ def register_parser(subparsers):
 def run(args):
     """Execute cluster-proteins command"""
     
-    if args.n_jobs == -1:
-        args.n_jobs = cpu_count()
+    if args.n_threads == -1:
+        args.n_threads = cpu_count()
     
     # Setup directories with command-specific subdirectory
     directories = setup_directories(args.output_directory, subdirectory="protein_clustering")
@@ -158,7 +158,7 @@ def run(args):
     logger.info("="*80)
     print_header(
         version=__version__,
-        n_jobs=args.n_jobs,
+        n_jobs=args.n_threads,
         additional_info={
             "Algorithm": args.algorithm,
             "Identity threshold": f"{args.minimum_identity_threshold}%",
@@ -194,7 +194,7 @@ def run(args):
         protein_fasta,
         mmseqs_prefix,
         directories["tmp"],
-        "--threads", str(args.n_jobs),
+        "--threads", str(args.n_threads),
         "--min-seq-id", str(args.minimum_identity_threshold / 100),
         "-c", str(args.minimum_coverage_threshold),
         "--cov-mode", "1",
