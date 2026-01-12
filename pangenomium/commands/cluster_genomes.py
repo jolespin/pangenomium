@@ -46,8 +46,14 @@ def parse_input(input_path, genome_extension=None):
                 df = pd.read_csv(input_path, sep="\t", header=None)
             
             if df.shape[1] == 3:
-                # Batch mode: [organism_type, id_genome, genome_filepath]
+                # Batch mode (simple): [organism_type, id_genome, genome_filepath]
                 df.columns = ["organism_type", "id_genome", "genome_filepath"]
+                for _, row in df.iterrows():
+                    genome_id_to_filepath[row["id_genome"]] = row["genome_filepath"]
+            
+            elif df.shape[1] == 4:
+                # Batch mode (full): [organism_type, id_genome, genome_filepath, protein_filepath]
+                df.columns = ["organism_type", "id_genome", "genome_filepath", "protein_filepath"]
                 for _, row in df.iterrows():
                     genome_id_to_filepath[row["id_genome"]] = row["genome_filepath"]
                     
@@ -58,7 +64,7 @@ def parse_input(input_path, genome_extension=None):
                     genome_filepath = row[3]
                     genome_id_to_filepath[id_genome] = genome_filepath
             else:
-                raise ValueError(f"Manifest must have 3 or ≥5 columns. Got {df.shape[1]}.")
+                raise ValueError(f"Manifest must have 3, 4, or ≥5 columns. Got {df.shape[1]}.")
         
         else:
             # It's a simple list - process line by line
