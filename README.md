@@ -1,5 +1,12 @@
 # Pangenomium
-Dereplicate genomes and proteins into pangenomes and orthologs
+
+Scalable pangenomics toolkit for clustering genomes and proteins across large datasets.
+
+## Installation
+
+```bash
+pip install pangenomium
+```
 
 ## Dependencies
 * [skani](https://github.com/bluenote-1577/skani)
@@ -14,133 +21,247 @@ The methodology used for dereplicating genomes into pangenomes and proteins into
 
 * Steinegger, M., S??ding, J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat Biotechnol 35, 1026???1028 (2017). https://doi.org/10.1038/nbt.3988
 
----
 
-## Usage
-### End-to-end for genome and protein-level pangenome clustering
-Designed for end-to-end genome and protein-level pangenome clustering.  This pipeline clusters genomes into pangenomes and then clusters proteins within pangenomes.
-
-
-#### mode: batch
-Designed for working with mixed cellular and viral pangenomes. 
+## Quick Start
 
 ```bash
-# Default (Batch)
-binning_directory="Analysis/veba_output/binning"
-genome_manifest_file="Analysis/misc/genomes_table.tsv"
-output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} | cut -f1,3,4,5 > ${genome_manifest_file}
-# Input: [organism_type, id_genome, genome_filepath, protein_filepath]
-pangenomium end-to-end -i ${genome_manifest_file} -m batch -o ${output_directory}
+# End-to-end workflow
+pangenomium end-to-end \
+  -i genomes_table.tsv \
+  --mode veba \
+  -o output_directory \
+  --n_threads_skani 8 \
+  --n_concurrent_mmseqs_tasks 4
+
+# Or run individual steps
+pangenomium cluster-genomes -i genome_list.txt -o genome_clustering
+pangenomium cluster-proteins-from-pangenomes \
+  -g genomes_table.tsv \
+  -c genome_clustering/output/genomes_to_pangenomes.tsv.gz \
+  -o protein_clustering
 ```
 
-#### mode: veba
-Designed to work as direct replacement for VEBA's cluster module. 
+## Commands
+
+### cluster-genomes
+
+Cluster genomes by ANI using skani.
 
 ```bash
-# VEBA
-binning_directory="Analysis/veba_output/binning"
-genome_manifest_file="Analysis/misc/genomes_table.tsv"
-output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} > ${genome_manifest_file}
-# Input: [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
-pangenomium end-to-end -i ${genome_manifest_file} -m veba -o ${output_directory}
-```
----
-
-### Clustering genomes into pangenomes
-
-#### mode: batch
-Designed for working with mixed cellular and viral pangenomes. 
-
-```bash
-# Default (Batch)
-binning_directory="Analysis/veba_output/binning"
-genome_manifest_file="Analysis/misc/genomes_table.tsv"
-output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} | cut -f1,3,4,5 > ${genome_manifest_file}
-# Input: [organism_type, id_genome, genome_filepath, protein_filepath]
-pangenomium cluster-genomes -i ${genome_manifest_file} -m batch -o ${output_directory}
+pangenomium cluster-genomes \
+  -i INPUT \
+  -o OUTPUT_DIR \
+  --n_threads 8 \
+  --ani_threshold 95.0
 ```
 
-#### mode: veba
-Designed to work as direct replacement for VEBA's cluster module. 
+**Input formats:**
+- Simple list: One genome path per line
+- Batch format: TSV with columns `[organism_type, id_genome, genome_filepath, protein_filepath]`
+- VEBA format: TSV with columns `[organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]`
+
+**Outputs:**
+- `genomes_to_pangenomes.tsv.gz` - Genome to pangenome cluster assignments
+- `serialization/genome_clusters.graph.pkl.gz` - NetworkX graph of genome relationships
+- `serialization/genome_clusters.dict.pkl.gz` - Dictionary mapping genomes to clusters
+- `representatives/genome_representatives.tsv.gz` - Representative genome for each cluster
+
+### cluster-proteins
+
+Cluster all proteins using MMseqs2.
 
 ```bash
-# VEBA
-binning_directory="Analysis/veba_output/binning"
-genome_manifest_file="Analysis/misc/genomes_table.tsv"
-output_directory="Analysis/pangenomium_output"
-compile-genomes-table.py -i ${binning_directory} > ${genome_manifest_file}
-# Input: [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
-pangenomium cluster-genomes -i ${genome_manifest_file} -m veba -o ${output_directory}
+pangenomium cluster-proteins \
+  -i proteins.faa \
+  -o OUTPUT_DIR \
+  --n_threads 8 \
+  --minimum_identity_threshold 50.0
 ```
 
-#### mode: cellular
-Defaults set for prokaryotic and/or eukaryotic genomes
+**Outputs:**
+- `protein_clusters.tsv.gz` - Protein to orthogroup assignments
+- `serialization/protein_clusters.graph.pkl.gz` - NetworkX graph
+- `serialization/protein_clusters.dict.pkl.gz` - Dictionary mapping
+- `representatives/protein_representatives.tsv.gz` - Representative sequences
+
+### cluster-proteins-from-pangenomes
+
+Cluster proteins within each pangenome independently using MMseqs2.
 
 ```bash
-# Cellular
-ls path/to/cellular_genomes/*.fa.gz > cellular_genome_filepaths.list
-output_directory="Analysis/pangenomium_output"
-# Input: path/to/genome.fa[.gz] on each line
-pangenomium cluster-genomes -g ${genome_filepaths} -m cellular -o ${output_directory} -x fa.gz
+pangenomium cluster-proteins-from-pangenomes \
+  -g genomes_table.tsv \
+  -c genomes_to_pangenomes.tsv.gz \
+  -o OUTPUT_DIR \
+  --n_threads_per_task 2 \
+  --n_concurrent_tasks 4
 ```
 
-Can also pipe filepaths instead:
+**Alternative input:** Direct pangenome manifest with `-i` instead of `-g` and `-c`.
+
+**Outputs:**
+- `output/proteins_to_orthologs.tsv.gz` - All protein to orthogroup assignments
+- `output/pangenome_tables/` - Per-pangenome prevalence matrices (genome × orthogroup)
+
+### end-to-end
+
+Complete workflow: genome clustering, protein clustering, and comprehensive output generation.
 
 ```bash
-ls path/to/cellular_genomes/*.fa.gz | pangenomium cluster-genomes -g ${genome_filepaths} -m cellular -o ${output_directory} -x fa.gz
+pangenomium end-to-end \
+  -i genomes_table.tsv \
+  --mode veba \
+  -o OUTPUT_DIR \
+  --n_threads_skani 8 \
+  --n_concurrent_mmseqs_tasks 4
 ```
 
-#### mode: viral
-Defaults set for viral genomes
+**Modes:**
+- `batch` - Expects 4-column format: `[organism_type, id_genome, genome_filepath, protein_filepath]`
+- `veba` - Expects 7-column VEBA format
+
+**Outputs:**
+
+Genome clustering results:
+- `genome_clustering/output/genomes_to_pangenomes.tsv.gz`
+- `genome_clustering/output/serialization/` - Graph and dictionary objects
+- `genome_clustering/output/representatives/` - Representative genomes
+
+Protein clustering results:
+- `protein_clustering/output/proteins_to_orthologs.tsv.gz`
+- `protein_clustering/output/pangenome_tables/` - Per-pangenome prevalence tables
+
+Comprehensive outputs in `output/`:
+- `genome_clusters.tsv.gz` - Genome metadata with cluster assignments
+- `protein_clusters.tsv.gz` - Protein metadata with orthogroup assignments
+- `identifiers.tsv.gz` - All identifier mappings
+- `pangenome_tables/` - Prevalence matrices for each pangenome
+- `representatives.faa` - Representative protein sequences
+- `core_pangenomes/` - Core pangenome sequences per cluster
+- `serialization/` - Graph and dictionary objects
+
+### compile-pangenomes-table
+
+Utility to create pangenome manifest from genome manifest and cluster assignments.
 
 ```bash
-# Viral
-ls path/to/viral_genomes/*.fa.gz > viral_genome_filepaths.list
-output_directory="Analysis/pangenomium_output"
-# Input: path/to/genome.fa[.gz] on each line
-pangenomium cluster-genomes -g ${genome_filepaths} -m viral -o ${output_directory} -x fa.gz
-```
----
-
-### Clustering proteins from pangenomes into orthologs
-
-#### mode: batch
-Designed for working with mixed cellular and viral pangenomes. 
-
-```bash
-# Default (Batch)
-
-# Input_1: $genome_manifest_file [organism_type, id_genome, genome_filepath, protein_filepath]
-# Input_2: $pangenome_file [id_genome, id_pangenome]
-# Output: $genome_manifest_file [id_genome, id_pangenome, protein_filepath]
-
-pangenome_file=${output_directory}/genome_clusters.tsv
-pangenome_manifest_file="Analysis/misc/pangenomes_table.tsv"
-compile-pangenomes-table.py -i ${genome_manifest_file} -c ${pangenome_file} > ${pangenome_manifest_file}
-
-# Input: $genome_manifest_file [id_genome, id_pangenome, protein_filepath]
-pangenomium cluster-proteins-from-pangenomes -i ${pangenome_manifest_file} -m batch -o ${output_directory}
-```
-
-#### mode: veba
-Designed to work as direct replacement for VEBA's cluster module. 
-
-```bash
-# VEBA
-...
-# Input_1: $genome_manifest_file [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, cds_filepath, gff_filepath]
-# Input_2: $pangenome_file [id_genome, id_pangenome]
-pangenomium cluster-proteins-from-pangenomes -i ${genome_manifest_file} -c ${pangenome_file} -m veba -o ${output_directory}
+pangenomium compile-pangenomes-table \
+  -i genomes_table.tsv \
+  -c genomes_to_pangenomes.tsv.gz \
+  -o pangenomes_manifest.tsv
 ```
 
+## Input Format Examples
 
-### Clustering proteins into orthologs
+### Simple genome list
+```
+/path/to/genome_001.fasta
+/path/to/genome_002.fasta
+/path/to/genome_003.fasta
+```
 
-Designed for working with mixed cellular and viral pangenomes. 
+### Batch manifest (4 columns)
+```
+prokaryote	genome_001	/path/to/genome_001.fasta	/path/to/proteins_001.faa
+prokaryote	genome_002	/path/to/genome_002.fasta	/path/to/proteins_002.faa
+eukaryote	genome_003	/path/to/genome_003.fasta	/path/to/proteins_003.faa
+```
 
+### VEBA manifest (7 columns)
+```
+prokaryote	sample_A	genome_001	/path/to/genome_001.fasta	/path/to/proteins_001.faa	/path/to/cds_001.ffn	/path/to/annotation_001.gff
+prokaryote	sample_A	genome_002	/path/to/genome_002.fasta	/path/to/proteins_002.faa	/path/to/cds_002.ffn	/path/to/annotation_002.gff
+prokaryote	sample_B	genome_003	/path/to/genome_003.fasta	/path/to/proteins_003.faa	/path/to/cds_003.ffn	/path/to/annotation_003.gff
+```
+
+### Pangenome manifest (3 columns)
+```
+genome_001	PanG-abc123	/path/to/proteins_001.faa
+genome_002	PanG-abc123	/path/to/proteins_002.faa
+genome_003	PanG-def456	/path/to/proteins_003.faa
+```
+
+## Output File Descriptions
+
+### Cluster assignment files
+- **genomes_to_pangenomes.tsv.gz** - Two columns: `[id_genome, id_pangenome]`
+- **proteins_to_orthologs.tsv.gz** - Two columns: `[id_protein, id_orthogroup]`
+
+### Comprehensive output tables
+- **genome_clusters.tsv.gz** - Genome metadata: ID, organism type, cluster, paths, contig count, total length
+- **protein_clusters.tsv.gz** - Protein metadata: ID, genome, contig, cluster, length, product
+- **identifiers.tsv.gz** - All identifier mappings: genome, sample, pangenome, contig, protein, orthogroup
+
+### Prevalence tables
+Per-pangenome matrices in `pangenome_tables/`:
+- Rows: Genomes
+- Columns: Orthogroups
+- Values: Number of proteins from genome in orthogroup
+
+### Representative sequences
+- **representatives.faa** - Representative protein for each orthogroup
+- **core_pangenomes/*.faa** - Core proteins for each pangenome cluster
+
+### Serialization objects
+- **genome_clusters.graph.pkl.gz** - NetworkX graph of genome ANI relationships
+- **genome_clusters.dict.pkl.gz** - Dictionary: genome → pangenome cluster
+- **protein_clusters.graph.pkl.gz** - NetworkX graph of protein similarity
+- **protein_clusters.dict.pkl.gz** - Dictionary: protein → orthogroup
+
+## Algorithm Details
+
+**Genome clustering:**
+- Uses skani for fast ANI calculation
+- Clusters with edgelist-to-clusters.py using relaxed mode (single-linkage)
+- Default: 95% ANI, 50% alignment fraction
+
+**Protein clustering:**
+- Uses MMseqs2 easy-cluster
+- Per-pangenome clustering prevents inflation of orthogroup sizes
+- Default: 50% identity, 80% coverage (bidirectional)
+
+**Parallelization:**
+- Genome clustering: Multi-threaded skani
+- Protein clustering: Multiple concurrent MMseqs2 jobs, each multi-threaded
+
+## Common Workflows
+
+### From VEBA output
 ```bash
-ls path/to/proteins/*.faa.gz | pangenomium cluster-proteins  -o ${output_directory} -x faa.gz
+pangenomium end-to-end \
+  -i veba_output/genomes_table.tsv \
+  --mode veba \
+  -o pangenome_analysis \
+  --n_threads_skani 16 \
+  --n_concurrent_mmseqs_tasks 8 \
+  --n_threads_mmseqs_per_task 4
+```
+
+### Manual two-step workflow
+```bash
+# Step 1: Cluster genomes
+pangenomium cluster-genomes \
+  -i genomes_table.tsv \
+  -o step1_genomes \
+  --n_threads 16
+
+# Step 2: Cluster proteins per pangenome
+pangenomium cluster-proteins-from-pangenomes \
+  -g genomes_table.tsv \
+  -c step1_genomes/output/genomes_to_pangenomes.tsv.gz \
+  -o step2_proteins \
+  --n_concurrent_tasks 8 \
+  --n_threads_per_task 4
+```
+
+### Protein clustering without genome context
+```bash
+# Concatenate all proteins
+cat proteins/*.faa > all_proteins.faa
+
+# Cluster all proteins together
+pangenomium cluster-proteins \
+  -i all_proteins.faa \
+  -o protein_clusters \
+  --n_threads 16
 ```
