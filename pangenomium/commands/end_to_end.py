@@ -18,6 +18,8 @@ from ..utils import setup_directories, setup_logger, print_header
 def parse_manifest(input_path, mode="batch"):
     """Parse input manifest
     
+    Accepted organism_types: {prokaryotic, eukaryotic, viral}
+    
     Batch mode (3-5 columns):
         [organism_type, id_genome, genome_filepath]
         [organism_type, id_genome, genome_filepath, protein_filepath]

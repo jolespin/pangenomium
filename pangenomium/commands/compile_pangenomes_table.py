@@ -15,6 +15,8 @@ def register_parser(subparsers):
         description="""
 Compile pangenome manifest table from genome manifest and genome clusters.
 
+Accepted organism_types: {prokaryotic, eukaryotic, viral}
+
 Input formats:
   Batch (4 cols):  [organism_type, id_genome, genome_filepath, protein_filepath]
   Batch (5 cols):  [organism_type, id_genome, genome_filepath, protein_filepath, cds_filepath]

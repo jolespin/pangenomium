@@ -14,6 +14,8 @@ from ..utils import setup_directories, setup_logger, print_header
 def parse_input(input_path, genome_extension=None):
     """Parse input as either manifest or simple list, autodetecting format
     
+    Accepted organism_types: {prokaryotic, eukaryotic, viral}
+
     Supports:
     - Manifest (3 cols): [organism_type, id_genome, genome_filepath]
     - Manifest (5+ cols): [organism_type, id_sample, id_genome, genome_filepath, protein_filepath, ...]

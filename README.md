@@ -5,6 +5,8 @@ Scalable pangenomics toolkit for clustering genomes and proteins across large da
 ## Installation
 
 ```bash
+mamba create -n pangenomium -c conda-forge -c bioconda skani mmseqs2 setuptools 'python>=3.9' -y
+mamba activate pangenomium
 pip install pangenomium
 ```
 
