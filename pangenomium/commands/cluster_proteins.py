@@ -109,7 +109,7 @@ def register_parser(subparsers):
         default="stdin",
         help="Input: protein FASTA file OR list of protein FASTA files (one per line) [Default: stdin]"
     )
-    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_proteins", help="Output directory [Default: pangenomium_output/cluster_proteins]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/protein_clustering", help="Output directory [Default: pangenomium_output/protein_clustering]")
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')

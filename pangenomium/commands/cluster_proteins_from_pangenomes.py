@@ -148,7 +148,7 @@ def register_parser(subparsers):
     parser_io.add_argument("-i", "--pangenome_manifest", type=str, help="Pangenome manifest: [id_genome, id_pangenome, protein_filepath]")
     parser_io.add_argument("-g", "--genome_manifest", type=str, help="Genome manifest (use with --genome_clusters)")
     parser_io.add_argument("-c", "--genome_clusters", type=str, help="Genome clusters file (use with --genome_manifest)")
-    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_proteins_from_pangenomes", help="Output directory [Default: pangenomium_output/cluster_proteins_from_pangenomes]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/protein_clustering_from_pangenomes", help="Output directory [Default: pangenomium_output/protein_clustering_from_pangenomes]")
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')

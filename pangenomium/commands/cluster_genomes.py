@@ -137,7 +137,7 @@ def register_parser(subparsers):
         default="stdin",
         help="Input: manifest file OR list of genome filepaths (one per line) [Default: stdin]"
     )
-    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_genomes", help="Output directory [Default: pangenomium_output/cluster_genomes]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/genome_clustering", help="Output directory [Default: pangenomium_output/genome_clustering]")
     parser_io.add_argument("-x", "--genome_extension", type=str, help="Genome extension for parsing IDs from list (e.g., 'fa.gz')")
     
     # Utility arguments
