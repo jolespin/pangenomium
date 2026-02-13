@@ -148,7 +148,7 @@ def register_parser(subparsers):
     parser_io.add_argument("-i", "--pangenome_manifest", type=str, help="Pangenome manifest: [id_genome, id_pangenome, protein_filepath]")
     parser_io.add_argument("-g", "--genome_manifest", type=str, help="Genome manifest (use with --genome_clusters)")
     parser_io.add_argument("-c", "--genome_clusters", type=str, help="Genome clusters file (use with --genome_manifest)")
-    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenome_protein_clustering_output", help="Output directory [Default: pangenome_protein_clustering_output]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_proteins_from_pangenomes", help="Output directory [Default: pangenomium_output/cluster_proteins_from_pangenomes]")
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
@@ -164,6 +164,8 @@ def register_parser(subparsers):
     
     # Clustering arguments
     parser_clustering = parser.add_argument_group('Clustering arguments')
+    parser_clustering.add_argument("--separator", type=str, default="_", help="Separator between pangenome ID and protein cluster ID [Default: '_']")
+    parser_clustering.add_argument("--protein_cluster_prefix", type=str, default="SSPC-", help="Protein cluster prefix [Default: 'SSPC-']")
     parser_clustering.add_argument("--cluster_suffix", type=str, default="", help="Cluster suffix [Default: '']")
     parser_clustering.add_argument("--cluster_prefix_zfill", type=int, default=0, help="Prefix zfill [Default: 0]")
     parser_clustering.add_argument("--cluster_label_mode", type=str, default="md5", choices=["numeric", "random", "pseudo-random", "md5", "nodes"], help="Label mode [Default: md5]")
@@ -233,7 +235,7 @@ def process_pangenome(pangenome_id, protein_data, protein_to_genome, args, direc
         "edgelist-to-clusters.py",
         "-i", edgelist_file,
         "-o", cluster_file,
-        "--cluster_prefix", f"{pangenome_id}__PanOG-",  # Use pangenome ID + PanOG- as prefix
+        "--cluster_prefix", f"{pangenome_id}{args.separator}{args.protein_cluster_prefix}",  # Use separator and protein_cluster_prefix
         "--cluster_prefix_zfill", str(args.cluster_prefix_zfill),
         "--cluster_label_mode", args.cluster_label_mode,
     ]

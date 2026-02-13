@@ -109,7 +109,7 @@ def register_parser(subparsers):
         default="stdin",
         help="Input: protein FASTA file OR list of protein FASTA files (one per line) [Default: stdin]"
     )
-    parser_io.add_argument("-o", "--output_directory", type=str, default="protein_clustering_output", help="Output directory [Default: protein_clustering_output]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_proteins", help="Output directory [Default: pangenomium_output/cluster_proteins]")
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
@@ -124,7 +124,7 @@ def register_parser(subparsers):
     
     # Clustering arguments
     parser_clustering = parser.add_argument_group('Clustering arguments')
-    parser_clustering.add_argument("--cluster_prefix", type=str, default="PanOG-", help="Cluster prefix [Default: 'PanOG-']")
+    parser_clustering.add_argument("--cluster_prefix", type=str, default="SSPC-", help="Cluster prefix [Default: 'SSPC-']")
     parser_clustering.add_argument("--cluster_suffix", type=str, default="", help="Cluster suffix [Default: '']")
     parser_clustering.add_argument("--cluster_prefix_zfill", type=int, default=0, help="Prefix zfill [Default: 0]")
     parser_clustering.add_argument("--cluster_label_mode", type=str, default="md5", choices=["numeric", "random", "pseudo-random", "md5", "nodes"], help="Label mode [Default: md5]")

@@ -161,13 +161,17 @@ def register_parser(subparsers):
     parser_genome.add_argument("--af_mode", type=str, default="relaxed", choices=["relaxed", "strict"], help="AF mode [Default: relaxed]")
     parser_genome.add_argument("--skani_preset", type=str, help="Skani preset")
     parser_genome.add_argument("--skani_options", type=str, default="", help="Additional skani options")
-    parser_genome.add_argument("--genome_cluster_prefix", type=str, default="PanG-", help="Genome cluster prefix [Default: 'PanG-']")
+    parser_genome.add_argument("--organism_type", type=str, choices=["prokaryotic", "eukaryotic", "viral"], help="Organism type (required with --prepend_organism_code)")
+    parser_genome.add_argument("--prepend_organism_code", action="store_true", help="Prepend organism code to genome cluster prefix (P/E/V)")
+    parser_genome.add_argument("--genome_cluster_prefix", type=str, default="SLC-", help="Genome cluster prefix [Default: 'SLC-']")
     
     # Protein clustering arguments
     parser_protein = parser.add_argument_group('Protein clustering arguments')
     parser_protein.add_argument("-a", "--algorithm", type=str, default="mmseqs-cluster", choices=["mmseqs-cluster", "mmseqs-linclust"], help="Algorithm [Default: mmseqs-cluster]")
     parser_protein.add_argument("-t", "--minimum_identity_threshold", type=float, default=50.0, help="Identity threshold [Default: 50.0]")
     parser_protein.add_argument("--minimum_coverage_threshold", type=float, default=0.8, help="Coverage threshold [Default: 0.8]")
+    parser_protein.add_argument("--separator", type=str, default="_", help="Separator between genome and protein cluster IDs [Default: '_']")
+    parser_protein.add_argument("--protein_cluster_prefix", type=str, default="SSPC-", help="Protein cluster prefix [Default: 'SSPC-']")
     parser_protein.add_argument("--mmseqs2_options", type=str, default="", help="MMseqs2 options")
     
     # Pangenome arguments
@@ -231,6 +235,21 @@ def run(args):
     
     genome_data = parse_manifest(args.input, mode=args.mode)
     logger.info(f"Genomes: {len(genome_data)}")
+    
+    # Auto-detect organism type from manifest if prepend_organism_code is used without --organism_type
+    if args.prepend_organism_code and not args.organism_type:
+        organism_types = set(data["organism_type"] for data in genome_data.values())
+        if len(organism_types) == 1:
+            args.organism_type = list(organism_types)[0]
+            logger.info(f"Auto-detected organism type from manifest: {args.organism_type}")
+        elif len(organism_types) > 1:
+            logger.error(f"--prepend_organism_code requires --organism_type when manifest contains multiple organism types: {organism_types}")
+            logger.error("Please specify --organism_type explicitly or ensure all genomes have the same organism type")
+            return 1
+        else:
+            logger.error("No organism types found in manifest")
+            return 1
+    
     logger.info("")
     
     # Create genome manifest for clustering
@@ -294,6 +313,10 @@ def run(args):
         "--cluster_label_mode", args.cluster_label_mode,
     ]
     
+    if args.organism_type:
+        cmd.extend(["--organism_type", args.organism_type])
+    if args.prepend_organism_code:
+        cmd.append("--prepend_organism_code")
     if args.skani_preset:
         cmd.extend(["--skani_preset", args.skani_preset])
     if args.skani_options:
@@ -363,6 +386,8 @@ def run(args):
             "-a", args.algorithm,
             "-t", str(args.minimum_identity_threshold),
             "--minimum_coverage_threshold", str(args.minimum_coverage_threshold),
+            "--separator", args.separator,
+            "--protein_cluster_prefix", args.protein_cluster_prefix,
             "--cluster_label_mode", args.cluster_label_mode,
         ]
         
@@ -817,5 +842,5 @@ def generate_comprehensive_output(genome_data, genome_clusters_file, protein_clu
             dst_repr = os.path.join(directories["output"], "representatives", "genome_representatives.tsv.gz")
             os.system(f"cp {src_repr} {dst_repr}")
     
-    logger.info("Comprehensive output generation complete!")
+    logger.info("Comprehensive output generation complete")
     logger.info(f"Output directory: {directories['output']}")

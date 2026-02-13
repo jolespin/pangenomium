@@ -137,7 +137,7 @@ def register_parser(subparsers):
         default="stdin",
         help="Input: manifest file OR list of genome filepaths (one per line) [Default: stdin]"
     )
-    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output", help="Output directory [Default: pangenomium_output]")
+    parser_io.add_argument("-o", "--output_directory", type=str, default="pangenomium_output/cluster_genomes", help="Output directory [Default: pangenomium_output/cluster_genomes]")
     parser_io.add_argument("-x", "--genome_extension", type=str, help="Genome extension for parsing IDs from list (e.g., 'fa.gz')")
     
     # Utility arguments
@@ -154,7 +154,9 @@ def register_parser(subparsers):
     
     # Clustering arguments
     parser_clustering = parser.add_argument_group('Clustering arguments')
-    parser_clustering.add_argument("--cluster_prefix", type=str, default="PanG-", help="Cluster prefix [Default: 'PanG-']")
+    parser_clustering.add_argument("--organism_type", type=str, choices=["prokaryotic", "eukaryotic", "viral"], help="Organism type (required with --prepend_organism_code)")
+    parser_clustering.add_argument("--prepend_organism_code", action="store_true", help="Prepend organism code to cluster prefix (P/E/V for prokaryotic/eukaryotic/viral)")
+    parser_clustering.add_argument("--cluster_prefix", type=str, default="SLC-", help="Cluster prefix [Default: 'SLC-']")
     parser_clustering.add_argument("--cluster_suffix", type=str, default="", help="Cluster suffix [Default: '']")
     parser_clustering.add_argument("--cluster_prefix_zfill", type=int, default=0, help="Prefix zfill [Default: 0]")
     parser_clustering.add_argument("--cluster_label_mode", type=str, default="md5", choices=["numeric", "random", "pseudo-random", "md5", "nodes"], help="Label mode [Default: md5]")
@@ -171,6 +173,18 @@ def run(args):
     
     if args.n_threads == -1:
         args.n_threads = cpu_count()
+    
+    # Validate organism code usage
+    if args.prepend_organism_code and not args.organism_type:
+        logger.error("--prepend_organism_code requires --organism_type to be specified")
+        return 1
+    
+    # Prepend organism code to cluster prefix if requested
+    cluster_prefix = args.cluster_prefix
+    if args.prepend_organism_code and args.organism_type:
+        organism_code = args.organism_type[0].upper()  # P, E, or V
+        cluster_prefix = organism_code + cluster_prefix
+        logger.info(f"Prepending organism code '{organism_code}' to cluster prefix: {cluster_prefix}")
     
     # Setup directories with command-specific subdirectory
     directories = setup_directories(args.output_directory, subdirectory="genome_clustering")
@@ -279,7 +293,7 @@ def run(args):
         "-t", str(args.ani_threshold),
         "-a", str(args.minimum_af),
         "-m", args.af_mode,
-        "--cluster_prefix", args.cluster_prefix,
+        "--cluster_prefix", cluster_prefix,  # Use cluster_prefix (potentially with organism code prepended)
         "--cluster_prefix_zfill", str(args.cluster_prefix_zfill),
         "--cluster_label_mode", args.cluster_label_mode,
         "--identifiers", genome_identifiers_filepath,  # Provide correct IDs
