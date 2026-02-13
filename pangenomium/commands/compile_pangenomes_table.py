@@ -110,6 +110,9 @@ def run(args):
         how="left"
     )
     
+    # Preserve original genome manifest order (critical for reproducible protein clustering)
+    df_output = df_output.set_index("id_genome").reindex(df_genomes["id_genome"]).reset_index()
+    
     # Reorder columns: [id_genome, id_pangenome, protein_filepath]
     df_output = df_output[["id_genome", "id_pangenome", "protein_filepath"]]
     

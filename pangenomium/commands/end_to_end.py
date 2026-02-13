@@ -438,7 +438,7 @@ def run(args):
         logger.info("")
     
     logger.info("="*80)
-    logger.info("Complete!")
+    logger.info("Complete")
     logger.info("="*80)
     
     return 0
