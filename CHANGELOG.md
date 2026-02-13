@@ -5,3 +5,5 @@
 ### Pending
 * Add `--protein_cluster_prefix`
 * Export CDS for orthologs if provided
+* Add `organsim_type` prefix to pangenomes
+* Add module for collating annotations
