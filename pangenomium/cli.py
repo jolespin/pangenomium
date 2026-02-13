@@ -34,6 +34,7 @@ def main():
         cluster_proteins_from_pangenomes,
         end_to_end,
         compile_pangenomes_table,
+        compile_genomes_table,
     )
     
     # Register subcommands
@@ -42,6 +43,7 @@ def main():
     cluster_proteins_from_pangenomes.register_parser(subparsers)
     end_to_end.register_parser(subparsers)
     compile_pangenomes_table.register_parser(subparsers)
+    compile_genomes_table.register_parser(subparsers)
     
     # Parse arguments
     args = parser.parse_args()
