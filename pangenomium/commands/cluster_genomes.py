@@ -240,7 +240,7 @@ def run(args):
     logger.info("Step 1: Running skani triangle")
     logger.info("="*80)
     
-    ani_edgelist = os.path.join(directories["intermediate"], "ani_edgelist.tsv")
+    ani_edgelist = os.path.join(directories["intermediate"], "skani-triangle_results.tsv")
     
     cmd = [
         "skani", "triangle",

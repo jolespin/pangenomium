@@ -442,8 +442,7 @@ def run(args):
         genome_clustering_intermediate = os.path.join(directories["project"], "genome_clustering", "intermediate")
         if os.path.exists(genome_clustering_tmp):
             cleanup_dirs.append(genome_clustering_tmp)
-        if os.path.exists(genome_clustering_intermediate):
-            cleanup_dirs.append(genome_clustering_intermediate)
+        # Keep genome_clustering/intermediate/ — contains skani output files useful for debugging
         
         # Protein clustering tmp and intermediate
         if has_proteins:
