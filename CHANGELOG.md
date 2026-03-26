@@ -12,3 +12,4 @@
 ### Pending
 * Export CDS for orthologs if provided
 * Add module for collating annotations
+* `Anvi'o` support
