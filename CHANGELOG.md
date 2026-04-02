@@ -1,4 +1,5 @@
 # CHANGELOG
+* [2026.4.2] - Added support for genome IDs different than filenames via symlink-based remapping in `cluster-genomes` [issue #10](https://github.com/jolespin/pangenomium/issues/10)
 * [2026.3.24] - Changed `ani_edgelist.tsv` to `skani-triangle_results.tsv` which is now kept
 * [2026.2.13] - Fixed issue where `organism_type` wasn't be autodetected from manifest when `-m veba`
 * [2026.2.13] - Changed default output directories to `pangenomium_output/[module]` with the exception of `end-to-end` which is just `pangenomium_output/`
