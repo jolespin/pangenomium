@@ -76,6 +76,24 @@ pangenomium cluster-genomes \
 echo "✓ Completed: test_outputs/03_cluster_genomes_veba"
 echo ""
 
+# 2d. Custom genome IDs (different from filenames)
+echo "2d. cluster-genomes with custom genome IDs..."
+
+# Create a 3-column manifest where genome IDs don't match filenames
+# Format: [organism_type, id_genome, genome_filepath]
+awk -F'\t' 'BEGIN{OFS="\t"; n=1} {
+    printf "%s\tGENOME_%03d\t%s\n", $1, n, $4;
+    n++
+}' genomes_table.tsv > test_inputs/custom_id_manifest.tsv
+
+pangenomium cluster-genomes \
+  -i test_inputs/custom_id_manifest.tsv \
+  -o test_outputs/02d_cluster_genomes_custom_ids \
+  --n_threads 4 \
+  --ani_threshold 95.0
+echo "✓ Completed: test_outputs/02d_cluster_genomes_custom_ids"
+echo ""
+
 # ============================================
 # STEP 3: Test cluster-proteins
 # ============================================
@@ -246,6 +264,23 @@ for dir in test_outputs/01_cluster_genomes_simple \
     echo "  ✓ $dir: $n_clusters pangenomes"
   fi
 done
+echo ""
+
+# Check custom genome ID output
+echo "Custom genome ID clustering:"
+dir="test_outputs/02d_cluster_genomes_custom_ids"
+if [ -f "$dir/output/genomes_to_pangenomes.tsv.gz" ]; then
+  n_clusters=$(gunzip -c "$dir/output/genomes_to_pangenomes.tsv.gz" | cut -f2 | sort -u | wc -l)
+  n_custom=$(gunzip -c "$dir/output/genomes_to_pangenomes.tsv.gz" | cut -f1 | grep -c "GENOME_")
+  n_total=$(gunzip -c "$dir/output/genomes_to_pangenomes.tsv.gz" | wc -l)
+  echo "  ✓ $dir: $n_clusters pangenomes, $n_custom/$n_total genomes have custom IDs"
+  if [ "$n_custom" -eq "$n_total" ]; then
+    echo "  ✓ All genome IDs are custom (symlink approach works!)"
+  else
+    echo "  ✗ FAIL: Some genome IDs are NOT custom"
+    exit 1
+  fi
+fi
 echo ""
 
 # Check protein clustering from pangenomes
