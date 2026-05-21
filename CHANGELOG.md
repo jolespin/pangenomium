@@ -1,4 +1,5 @@
 # CHANGELOG
+* [2026.5.19] - Fixed genome ID truncation when filenames contain `.` characters in the ID (e.g., `B02P4-2019_bin.13.fa.gz`) during auto-detection in `cluster-genomes` [issue #14](https://github.com/jolespin/pangenomium/issues/14)
 * [2026.4.2] - Added support for genome IDs different than filenames via symlink-based remapping in `cluster-genomes` [issue #10](https://github.com/jolespin/pangenomium/issues/10)
 * [2026.3.24] - Changed `ani_edgelist.tsv` to `skani-triangle_results.tsv` which is now kept
 * [2026.2.13] - Fixed issue where `organism_type` wasn't be autodetected from manifest when `-m veba`

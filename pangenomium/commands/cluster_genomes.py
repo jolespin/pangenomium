@@ -186,7 +186,7 @@ def parse_input(input_path, genome_extension=None):
                         ext = "." + ext
                     genome_id = basename[:-len(ext)] if basename.endswith(ext) else basename
                 else:
-                    genome_id = basename.split(".")[0]
+                    genome_id = get_basename_from_filepath(filepath)
                 
                 genome_id_to_filepath[genome_id] = filepath
     
