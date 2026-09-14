@@ -2,6 +2,10 @@
 
 Scalable pangenomics toolkit for clustering genomes and proteins across large datasets.
 
+> [!CAUTION]
+> This project is in developmental stages and designed to reproduce the outputs of [VEBA's clustering module](https://github.com/jolespin/veba/blob/main/bin/cluster.py).
+> Documentation on GitHub may not be up-to-date during development.
+
 ## Installation
 
 ```bash
