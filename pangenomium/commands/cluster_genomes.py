@@ -135,7 +135,12 @@ def parse_input(input_path, genome_extension=None):
                 for _, row in df.iterrows():
                     genome_id_to_filepath[row["id_genome"]] = row["genome_filepath"]
                     
-            elif df.shape[1] >= 5:
+            elif df.shape[1] == 5:
+                # Batch mode with CDS: [organism_type, id_genome, genome_filepath, protein_filepath, cds_filepath]
+                for _, row in df.iterrows():
+                    genome_id_to_filepath[row[1]] = row[2]
+
+            elif df.shape[1] >= 6:
                 # VEBA mode: [organism_type, id_sample, id_genome, genome_filepath, ...]
                 for _, row in df.iterrows():
                     id_genome = row[2]
