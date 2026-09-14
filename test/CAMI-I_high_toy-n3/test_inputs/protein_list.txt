@@ -1,0 +1,15 @@
+genomes/H_S001__1148.1.faa.gz
+genomes/H_S001__40041.1.faa.gz
+genomes/H_S001__95609.1.faa.gz
+genomes/H_S002__1148.1.faa.gz
+genomes/H_S002__40041.1.faa.gz
+genomes/H_S002__95609.1.faa.gz
+genomes/H_S003__1148.1.faa.gz
+genomes/H_S003__40041.1.faa.gz
+genomes/H_S003__95609.1.faa.gz
+genomes/H_S004__1148.1.faa.gz
+genomes/H_S004__40041.1.faa.gz
+genomes/H_S004__95609.1.faa.gz
+genomes/H_S005__1148.1.faa.gz
+genomes/H_S005__40041.1.faa.gz
+genomes/H_S005__95609.1.faa.gz
