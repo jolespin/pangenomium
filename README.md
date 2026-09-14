@@ -25,7 +25,7 @@ The methodology used for dereplicating genomes into pangenomes and proteins into
 
 * Shaw J, Yu YW. Fast and robust metagenomic sequence comparison through sparse chaining with skani. Nat Methods. 2023 Nov;20(11):1661-1665. doi: 10.1038/s41592-023-02018-3.
 
-* Steinegger, M., S??ding, J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat Biotechnol 35, 1026???1028 (2017). https://doi.org/10.1038/nbt.3988
+* Steinegger, M., Söding, J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat Biotechnol 35, 1026–1028 (2017). https://doi.org/10.1038/nbt.3988
 
 
 ## Quick Start
