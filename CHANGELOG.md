@@ -1,4 +1,5 @@
 # CHANGELOG
+* [2026.9.14] - Fixed column mismatch in `cluster-genomes` when parsing 5-column batch manifests (`[organism_type, id_genome, genome, proteins, cds]`); the `>=5` column branch incorrectly treated batch format as VEBA format, shifting column indices so genome IDs were set to genome filepaths and protein filepaths (`.faa`) were used in place of genome filepaths (`.fa`), causing `end-to-end` to fail during symlink creation
 * [2026.5.19] - Fixed genome ID truncation when filenames contain `.` characters in the ID (e.g., `B02P4-2019_bin.13.fa.gz`) during auto-detection in `cluster-genomes` [issue #14](https://github.com/jolespin/pangenomium/issues/14)
 * [2026.4.2] - Added support for genome IDs different than filenames via symlink-based remapping in `cluster-genomes` [issue #10](https://github.com/jolespin/pangenomium/issues/10)
 * [2026.3.24] - Changed `ani_edgelist.tsv` to `skani-triangle_results.tsv` which is now kept
