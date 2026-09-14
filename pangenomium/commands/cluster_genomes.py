@@ -11,6 +11,82 @@ from pyexeggutor import RunShellCommand, format_header
 from .. import __version__
 from ..utils import setup_directories, setup_logger, print_header
 
+def get_basename_from_filepath(filepath):
+    """Replicate the basename extraction logic from edgelist-to-clusters.py --basename.
+
+    This must stay in sync with the get_basename() function in edgelist-to-clusters.py
+    (lines 102-106) to correctly predict what IDs will appear in the processed edge list.
+    """
+    _, fn = os.path.split(filepath)
+    if fn.endswith(".gz"):
+        fn = fn[:-3]
+    return ".".join(fn.split(".")[:-1])
+
+
+def get_file_extension(filepath):
+    """Extract extension from filepath, preserving compound extensions like .fa.gz"""
+    basename = os.path.basename(filepath)
+    if basename.endswith(".gz"):
+        inner = basename[:-3]
+        parts = inner.split(".")
+        if len(parts) > 1:
+            return "." + parts[-1] + ".gz"
+        return ".gz"
+    else:
+        parts = basename.split(".")
+        if len(parts) > 1:
+            return "." + parts[-1]
+        return ""
+
+
+def create_genome_symlinks(genome_id_to_filepath, tmp_directory):
+    """Create symlinks named by genome_id when IDs don't match filename basenames.
+
+    This ensures that skani output (which uses filepaths) will produce basenames
+    matching the manifest's genome IDs when processed by edgelist-to-clusters.py --basename.
+
+    Args:
+        genome_id_to_filepath: OrderedDict mapping genome_id -> filepath
+        tmp_directory: Path to tmp directory for symlink storage
+
+    Returns:
+        tuple: (genome_id_to_filepath_for_skani, used_symlinks)
+            - genome_id_to_filepath_for_skani: OrderedDict with symlink paths (or original if no symlinks needed)
+            - used_symlinks: bool indicating whether symlinks were created
+    """
+    # Check if any genome ID differs from what --basename would derive
+    needs_symlinks = False
+    for genome_id, filepath in genome_id_to_filepath.items():
+        derived_id = get_basename_from_filepath(filepath)
+        if genome_id != derived_id:
+            needs_symlinks = True
+            break
+
+    if not needs_symlinks:
+        return genome_id_to_filepath, False
+
+    # Create symlink directory
+    symlink_dir = os.path.join(tmp_directory, "genome_symlinks")
+    os.makedirs(symlink_dir, exist_ok=True)
+
+    # Create symlinks
+    genome_id_to_symlink = OrderedDict()
+    for genome_id, filepath in genome_id_to_filepath.items():
+        abs_target = os.path.abspath(filepath)
+        ext = get_file_extension(filepath)
+        symlink_name = genome_id + ext
+        symlink_path = os.path.join(symlink_dir, symlink_name)
+
+        # Remove existing symlink if present (idempotent)
+        if os.path.lexists(symlink_path):
+            os.remove(symlink_path)
+
+        os.symlink(abs_target, symlink_path)
+        genome_id_to_symlink[genome_id] = symlink_path
+
+    return genome_id_to_symlink, True
+
+
 def parse_input(input_path, genome_extension=None):
     """Parse input as either manifest or simple list, autodetecting format
     
@@ -110,7 +186,7 @@ def parse_input(input_path, genome_extension=None):
                         ext = "." + ext
                     genome_id = basename[:-len(ext)] if basename.endswith(ext) else basename
                 else:
-                    genome_id = basename.split(".")[0]
+                    genome_id = get_basename_from_filepath(filepath)
                 
                 genome_id_to_filepath[genome_id] = filepath
     
@@ -218,11 +294,18 @@ def run(args):
     
     genome_id_to_filepath = parse_input(args.input, args.genome_extension)
     logger.info(f"Genomes: {len(genome_id_to_filepath)}")
-    
-    # Write genome list (filepaths for skani)
+
+    # Create symlinks if genome IDs don't match filename basenames
+    genome_id_to_filepath_for_skani, used_symlinks = create_genome_symlinks(
+        genome_id_to_filepath, directories["tmp"]
+    )
+    if used_symlinks:
+        logger.info("Created genome symlinks (genome IDs differ from filenames)")
+
+    # Write genome list (filepaths for skani) - uses symlink paths if created
     genome_list_filepath = os.path.join(directories["intermediate"], "genome_list.txt")
     with open(genome_list_filepath, "w") as f:
-        for genome_id, filepath in genome_id_to_filepath.items():
+        for genome_id, filepath in genome_id_to_filepath_for_skani.items():
             print(filepath, file=f)
     
     # Write genome identifiers list (for edgelist-to-clusters)
@@ -240,7 +323,7 @@ def run(args):
     logger.info("Step 1: Running skani triangle")
     logger.info("="*80)
     
-    ani_edgelist = os.path.join(directories["intermediate"], "ani_edgelist.tsv")
+    ani_edgelist = os.path.join(directories["intermediate"], "skani-triangle_results.tsv")
     
     cmd = [
         "skani", "triangle",
