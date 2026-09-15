@@ -94,6 +94,43 @@ pangenomium cluster-genomes \
 echo "✓ Completed: test_outputs/02d_cluster_genomes_custom_ids"
 echo ""
 
+# 2e. Nucmer backend
+echo "2e. cluster-genomes with nucmer..."
+pangenomium cluster-genomes \
+  -i test_inputs/batch_manifest.tsv \
+  -o test_outputs/02e_cluster_genomes_nucmer \
+  --genome_clustering_algorithm nucmer \
+  --n_threads 2 \
+  --n_concurrent_nucmer_tasks 4 \
+  --ani_threshold 95.0
+echo "✓ Completed: test_outputs/02e_cluster_genomes_nucmer"
+echo ""
+
+# 2f. Nucmer backend + dot plots
+echo "2f. cluster-genomes with nucmer + dot plots..."
+pangenomium cluster-genomes \
+  -i test_inputs/batch_manifest.tsv \
+  -o test_outputs/02f_cluster_genomes_nucmer_dotplots \
+  --genome_clustering_algorithm nucmer \
+  --n_threads 2 \
+  --n_concurrent_nucmer_tasks 4 \
+  --ani_threshold 95.0 \
+  --generate_dotplots
+echo "✓ Completed: test_outputs/02f_cluster_genomes_nucmer_dotplots"
+echo ""
+
+# 2g. Skani backend + dot plots (post-hoc nucmer for visualization)
+echo "2g. cluster-genomes with skani + dot plots..."
+pangenomium cluster-genomes \
+  -i test_inputs/batch_manifest.tsv \
+  -o test_outputs/02g_cluster_genomes_skani_dotplots \
+  --genome_clustering_algorithm skani \
+  --n_threads 4 \
+  --ani_threshold 95.0 \
+  --generate_dotplots
+echo "✓ Completed: test_outputs/02g_cluster_genomes_skani_dotplots"
+echo ""
+
 # ============================================
 # STEP 3: Test cluster-proteins
 # ============================================
@@ -186,7 +223,7 @@ pangenomium end-to-end \
   -i test_inputs/batch_manifest.tsv \
   --mode batch \
   -o test_outputs/08_end_to_end_batch \
-  --n_threads_skani 4 \
+  --n_threads_ani 4 \
   --n_threads_mmseqs_per_task 2 \
   --n_concurrent_mmseqs_tasks 4 \
   --ani_threshold 95.0 \
@@ -200,12 +237,28 @@ pangenomium end-to-end \
   -i test_inputs/veba_manifest.tsv \
   --mode veba \
   -o test_outputs/09_end_to_end_veba \
-  --n_threads_skani 4 \
+  --n_threads_ani 4 \
   --n_threads_mmseqs_per_task 2 \
   --n_concurrent_mmseqs_tasks 4 \
   --ani_threshold 95.0 \
   --minimum_identity_threshold 50.0
 echo "✓ Completed: test_outputs/09_end_to_end_veba"
+echo ""
+
+# 5c. end-to-end with nucmer backend
+echo "5c. end-to-end with nucmer backend..."
+pangenomium end-to-end \
+  -i test_inputs/batch_manifest.tsv \
+  --mode batch \
+  -o test_outputs/10_end_to_end_nucmer \
+  --genome_clustering_algorithm nucmer \
+  --n_threads_ani 2 \
+  --n_concurrent_nucmer_tasks 4 \
+  --n_threads_mmseqs_per_task 2 \
+  --n_concurrent_mmseqs_tasks 4 \
+  --ani_threshold 95.0 \
+  --minimum_identity_threshold 50.0
+echo "✓ Completed: test_outputs/10_end_to_end_nucmer"
 echo ""
 
 # ============================================
@@ -220,22 +273,22 @@ echo ""
 echo "6a. Manual step 1: cluster-genomes..."
 pangenomium cluster-genomes \
   -i test_inputs/veba_manifest.tsv \
-  -o test_outputs/10_manual_step1_genomes \
+  -o test_outputs/12_manual_step1_genomes \
   --n_threads 4 \
   --ani_threshold 95.0
-echo "✓ Completed: test_outputs/10_manual_step1_genomes"
+echo "✓ Completed: test_outputs/12_manual_step1_genomes"
 echo ""
 
 # 6b. cluster-proteins-from-pangenomes
 echo "6b. Manual step 2: cluster-proteins-from-pangenomes..."
 pangenomium cluster-proteins-from-pangenomes \
   -g test_inputs/veba_manifest.tsv \
-  -c test_outputs/10_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz \
-  -o test_outputs/11_manual_step2_proteins \
+  -c test_outputs/12_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz \
+  -o test_outputs/13_manual_step2_proteins \
   --n_threads_per_task 2 \
   --n_concurrent_tasks 4 \
   --minimum_identity_threshold 50.0
-echo "✓ Completed: test_outputs/11_manual_step2_proteins"
+echo "✓ Completed: test_outputs/13_manual_step2_proteins"
 echo ""
 
 echo "=================================================="
@@ -254,14 +307,43 @@ echo ""
 echo "Checking outputs..."
 echo ""
 
-# Check genome clustering outputs
-echo "Genome clustering outputs:"
+# Check genome clustering outputs (skani)
+echo "Genome clustering outputs (skani):"
 for dir in test_outputs/01_cluster_genomes_simple \
            test_outputs/02_cluster_genomes_batch \
            test_outputs/03_cluster_genomes_veba; do
   if [ -f "$dir/output/genomes_to_pangenomes.tsv.gz" ]; then
     n_clusters=$(gunzip -c "$dir/output/genomes_to_pangenomes.tsv.gz" | cut -f2 | sort -u | wc -l)
     echo "  ✓ $dir: $n_clusters pangenomes"
+  fi
+done
+echo ""
+
+# Check genome clustering outputs (nucmer)
+echo "Genome clustering outputs (nucmer):"
+dir="test_outputs/02e_cluster_genomes_nucmer"
+if [ -f "$dir/output/genomes_to_pangenomes.tsv.gz" ]; then
+  n_clusters=$(gunzip -c "$dir/output/genomes_to_pangenomes.tsv.gz" | cut -f2 | sort -u | wc -l)
+  echo "  ✓ $dir: $n_clusters pangenomes"
+fi
+echo ""
+
+# Compare skani vs nucmer clustering
+echo "Skani vs nucmer comparison:"
+echo "  skani:  $(gunzip -c test_outputs/02_cluster_genomes_batch/output/genomes_to_pangenomes.tsv.gz | cut -f2 | sort -u | wc -l) pangenomes"
+echo "  nucmer: $(gunzip -c test_outputs/02e_cluster_genomes_nucmer/output/genomes_to_pangenomes.tsv.gz | cut -f2 | sort -u | wc -l) pangenomes"
+echo ""
+
+# Check dot plot outputs
+echo "Dot plot outputs:"
+for dir in test_outputs/02f_cluster_genomes_nucmer_dotplots \
+           test_outputs/02g_cluster_genomes_skani_dotplots; do
+  if [ -d "$dir/output/dotplots" ]; then
+    n_plots=$(ls "$dir/output/dotplots/"*.pdf 2>/dev/null | wc -l)
+    has_archive=$(ls "$dir/output/dotplots/"dotplot_auxiliary_files.tar.gz 2>/dev/null | wc -l)
+    echo "  ✓ $dir: $n_plots dot plots (pdf), $has_archive auxiliary archive(s)"
+  else
+    echo "  - $dir: no dotplots directory (no pairs passed thresholds)"
   fi
 done
 echo ""
@@ -311,10 +393,10 @@ echo ""
 
 # Check manual workflow
 echo "Manual workflow outputs:"
-if [ -f "test_outputs/10_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz" ] && \
-   [ -f "test_outputs/11_manual_step2_proteins/output/proteins_to_orthologs.tsv.gz" ]; then
-  n_pangenomes=$(gunzip -c test_outputs/10_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz | cut -f2 | sort -u | wc -l)
-  n_tables=$(ls test_outputs/11_manual_step2_proteins/output/pangenome_tables/*.tsv.gz 2>/dev/null | wc -l)
+if [ -f "test_outputs/12_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz" ] && \
+   [ -f "test_outputs/13_manual_step2_proteins/output/proteins_to_orthologs.tsv.gz" ]; then
+  n_pangenomes=$(gunzip -c test_outputs/12_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz | cut -f2 | sort -u | wc -l)
+  n_tables=$(ls test_outputs/13_manual_step2_proteins/output/pangenome_tables/*.tsv.gz 2>/dev/null | wc -l)
   echo "  ✓ Manual workflow: $n_pangenomes pangenomes, $n_tables pangenome tables"
 fi
 echo ""
@@ -326,17 +408,17 @@ echo "=================================================="
 echo ""
 
 echo "Genome clusters comparison:"
-echo "  Manual:      $(gunzip -c test_outputs/10_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz | wc -l) lines"
+echo "  Manual:      $(gunzip -c test_outputs/12_manual_step1_genomes/output/genomes_to_pangenomes.tsv.gz | wc -l) lines"
 echo "  End-to-end:  $(gunzip -c test_outputs/09_end_to_end_veba/genome_clustering/output/genomes_to_pangenomes.tsv.gz | wc -l) lines"
 echo ""
 
 echo "Protein clusters comparison:"
-echo "  Manual:      $(gunzip -c test_outputs/11_manual_step2_proteins/output/proteins_to_orthologs.tsv.gz | wc -l) lines"
+echo "  Manual:      $(gunzip -c test_outputs/13_manual_step2_proteins/output/proteins_to_orthologs.tsv.gz | wc -l) lines"
 echo "  End-to-end:  $(gunzip -c test_outputs/09_end_to_end_veba/protein_clustering/output/proteins_to_orthologs.tsv.gz | wc -l) lines"
 echo ""
 
 echo "Pangenome tables comparison:"
-echo "  Manual:      $(ls test_outputs/11_manual_step2_proteins/output/pangenome_tables/*.tsv.gz 2>/dev/null | wc -l) tables"
+echo "  Manual:      $(ls test_outputs/13_manual_step2_proteins/output/pangenome_tables/*.tsv.gz 2>/dev/null | wc -l) tables"
 echo "  End-to-end:  $(ls test_outputs/09_end_to_end_veba/output/pangenome_tables/*.tsv.gz | wc -l) tables"
 echo ""
 

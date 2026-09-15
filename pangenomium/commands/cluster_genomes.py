@@ -1,15 +1,74 @@
-"""Cluster genomes into pangenomes using skani"""
+"""Cluster genomes into pangenomes using skani or nucmer"""
 from __future__ import print_function, division
 import sys
 import os
+import re
+import gzip
+import shutil
+import tarfile
+import subprocess
 import argparse
+from itertools import combinations
 from multiprocessing import cpu_count
 from collections import OrderedDict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import pandas as pd
+from tqdm import tqdm
 from loguru import logger
 from pyexeggutor import RunShellCommand, format_header
 from .. import __version__
 from ..utils import setup_directories, setup_logger, print_header
+
+
+def _check_status_quiet(step, expected_outputs=None):
+    """Validate command success without printing to stderr.
+
+    Replaces step.check_status() which unconditionally prints
+    'Command Successful: ...' to stderr for every command.
+    """
+    if step.returncode_ != 0:
+        raise subprocess.CalledProcessError(
+            returncode=step.returncode_,
+            cmd=step.command,
+        )
+    if expected_outputs:
+        for filepath in expected_outputs:
+            if not os.path.exists(filepath) or os.path.getsize(filepath) == 0:
+                raise FileNotFoundError(f"Expected output not found or empty: {filepath}")
+
+
+def archive_nucmer_results(nucmer_work_dir, archive_dir):
+    """Create .tar.gz archives of nucmer intermediate files grouped by type."""
+    os.makedirs(archive_dir, exist_ok=True)
+
+    file_groups = {
+        "delta": [".delta"],
+        "filtered_delta": [".1delta", ".mdelta"],
+        "reports": [".report"],
+        "coords": [".1coords", ".mcoords"],
+        "snps": [".snps"],
+        "diff": [".rdiff", ".qdiff", ".unref", ".unqry"],
+    }
+
+    for group_name, extensions in file_groups.items():
+        matching_files = []
+        for ext in extensions:
+            matching_files.extend(
+                f for f in os.listdir(nucmer_work_dir)
+                if f.endswith(ext)
+            )
+        if not matching_files:
+            continue
+
+        archive_path = os.path.join(archive_dir, f"nucmer_results.{group_name}.tar.gz")
+        with tarfile.open(archive_path, "w:gz") as tar:
+            for fname in sorted(matching_files):
+                tar.add(
+                    os.path.join(nucmer_work_dir, fname),
+                    arcname=fname,
+                )
+        logger.info(f"Archived {len(matching_files)} files → {os.path.basename(archive_path)}")
+
 
 def get_basename_from_filepath(filepath):
     """Replicate the basename extraction logic from edgelist-to-clusters.py --basename.
@@ -201,12 +260,235 @@ def parse_input(input_path, genome_extension=None):
     
     return genome_id_to_filepath
 
+def decompress_genomes(genome_id_to_filepath, tmp_directory):
+    """Decompress .gz genome files to a temporary directory.
+
+    Returns an updated genome_id -> filepath mapping where .gz files
+    are replaced with paths to their decompressed copies. Non-gzipped
+    files are returned as-is.
+    """
+    genome_id_to_decompressed = OrderedDict()
+    needs_decompress = any(fp.endswith(".gz") for fp in genome_id_to_filepath.values())
+
+    if not needs_decompress:
+        return genome_id_to_filepath
+
+    decompressed_dir = os.path.join(tmp_directory, "decompressed_genomes")
+    os.makedirs(decompressed_dir, exist_ok=True)
+    logger.info(f"Decompressing .gz genomes to {decompressed_dir}")
+
+    for genome_id, filepath in genome_id_to_filepath.items():
+        if filepath.endswith(".gz"):
+            ext = get_file_extension(filepath)
+            if ext.endswith(".gz"):
+                ext = ext[:-3]
+            decompressed_path = os.path.join(decompressed_dir, genome_id + ext)
+            with gzip.open(filepath, 'rb') as f_in, open(decompressed_path, 'wb') as f_out:
+                shutil.copyfileobj(f_in, f_out)
+            genome_id_to_decompressed[genome_id] = decompressed_path
+        else:
+            genome_id_to_decompressed[genome_id] = filepath
+
+    return genome_id_to_decompressed
+
+
+def parse_dnadiff_report(report_path, ref_id, qry_id, identity_type="1-to-1"):
+    """Parse a dnadiff .report file to extract ANI and alignment fractions.
+
+    Returns (ref_id, qry_id, ani, af_ref, af_query) or None if parsing fails.
+    """
+    af_ref = None
+    af_query = None
+    ani = None
+    current_section = None
+
+    with open(report_path, 'r') as f:
+        for line in f:
+            stripped = line.strip()
+
+            if stripped.startswith("1-to-1"):
+                current_section = "1-to-1"
+                continue
+            elif stripped.startswith("M-to-M"):
+                current_section = "M-to-M"
+                continue
+
+            if stripped.startswith("AlignedBases"):
+                pcts = re.findall(r'\((\d+\.?\d*)%\)', stripped)
+                if len(pcts) >= 2:
+                    af_ref = float(pcts[0])
+                    af_query = float(pcts[1])
+
+            if stripped.startswith("AvgIdentity") and current_section == identity_type:
+                parts = stripped.split()
+                if len(parts) >= 2:
+                    ani = float(parts[1])
+
+    if ani is not None and af_ref is not None and af_query is not None:
+        return (ref_id, qry_id, ani, af_ref, af_query)
+
+    logger.warning(f"Could not fully parse dnadiff report: {report_path}")
+    return None
+
+
+def run_nucmer_pair(ref_id, qry_id, ref_path, qry_path, work_dir,
+                    nucmer_options="", identity_type="1-to-1", n_threads=1):
+    """Run nucmer + dnadiff for a single genome pair.
+
+    Returns (ref_id, qry_id, ani, af_ref, af_query) or None.
+    """
+    pair_prefix = f"{ref_id}__vs__{qry_id}"
+    prefix = os.path.join(work_dir, pair_prefix)
+
+    cmd = ["nucmer", "-p", prefix, "-t", str(n_threads)]
+    if nucmer_options:
+        cmd.extend(nucmer_options.split())
+    cmd.extend([ref_path, qry_path])
+
+    delta_file = f"{prefix}.delta"
+    report_file = f"{prefix}.report"
+
+    step = RunShellCommand(
+        command=cmd,
+        name=f"nucmer:{pair_prefix}",
+    ).run()
+    _check_status_quiet(step, expected_outputs=[delta_file])
+
+    cmd_dnadiff = ["dnadiff", "-d", delta_file, "-p", prefix]
+    step = RunShellCommand(
+        command=cmd_dnadiff,
+        name=f"dnadiff:{pair_prefix}",
+    ).run()
+    _check_status_quiet(step, expected_outputs=[report_file])
+
+    return parse_dnadiff_report(report_file, ref_id, qry_id, identity_type)
+
+
+def run_nucmer_all_vs_all(genome_id_to_filepath, work_dir, output_edgelist,
+                          nucmer_options="", identity_type="1-to-1",
+                          n_threads_per_task=1, n_concurrent_tasks=1):
+    """Run nucmer + dnadiff for all pairwise genome comparisons.
+
+    Writes a 5-column edge list: [id_ref, id_qry, ANI, AF_ref, AF_query].
+    Returns the DataFrame of results.
+    """
+    pairs = list(combinations(genome_id_to_filepath.keys(), 2))
+    n_pairs = len(pairs)
+    logger.info(f"Running {n_pairs} pairwise nucmer comparisons ({len(genome_id_to_filepath)} genomes)")
+
+    results = []
+
+    def _run_pair(ref_id, qry_id):
+        return run_nucmer_pair(
+            ref_id, qry_id,
+            genome_id_to_filepath[ref_id],
+            genome_id_to_filepath[qry_id],
+            work_dir, nucmer_options, identity_type, n_threads_per_task
+        )
+
+    if n_concurrent_tasks > 1:
+        with ThreadPoolExecutor(max_workers=n_concurrent_tasks) as executor:
+            futures = {
+                executor.submit(_run_pair, ref_id, qry_id): (ref_id, qry_id)
+                for ref_id, qry_id in pairs
+            }
+            for future in tqdm(as_completed(futures), total=n_pairs,
+                               desc="Nucmer pairwise", unit=" pairs"):
+                result = future.result()
+                if result is not None:
+                    results.append(result)
+    else:
+        for ref_id, qry_id in tqdm(pairs, desc="Nucmer pairwise", unit=" pairs"):
+            result = _run_pair(ref_id, qry_id)
+            if result is not None:
+                results.append(result)
+
+    df_edges = pd.DataFrame(results, columns=["id_ref", "id_qry", "ANI", "AF_ref", "AF_query"])
+    df_edges.to_csv(output_edgelist, sep="\t", index=False, header=False)
+    logger.info(f"Wrote {len(results)} edges to {output_edgelist}")
+
+    return df_edges
+
+
+def archive_dotplot_auxiliary_files(dotplot_dir):
+    """Archive mummerplot auxiliary files (.gp, .fplot, .rplot) and remove originals."""
+    aux_extensions = [".gp", ".fplot", ".rplot"]
+    matching_files = []
+    for ext in aux_extensions:
+        matching_files.extend(
+            f for f in os.listdir(dotplot_dir)
+            if f.endswith(ext)
+        )
+
+    if not matching_files:
+        return
+
+    archive_path = os.path.join(dotplot_dir, "dotplot_auxiliary_files.tar.gz")
+    with tarfile.open(archive_path, "w:gz") as tar:
+        for fname in sorted(matching_files):
+            tar.add(
+                os.path.join(dotplot_dir, fname),
+                arcname=fname,
+            )
+
+    for fname in matching_files:
+        os.remove(os.path.join(dotplot_dir, fname))
+
+    logger.info(f"Archived {len(matching_files)} auxiliary files → {os.path.basename(archive_path)}")
+
+
+def generate_dotplots(passing_pairs, genome_id_to_decompressed, nucmer_work_dir,
+                      dotplot_dir, dotplot_format="pdf", nucmer_options="", n_threads=1):
+    """Generate dot plots for threshold-passing genome pairs.
+
+    For nucmer backend, delta files already exist in nucmer_work_dir.
+    For skani backend, runs nucmer first to produce delta files.
+    """
+    os.makedirs(dotplot_dir, exist_ok=True)
+
+    for ref_id, qry_id in tqdm(passing_pairs, desc="Generating dot plots", unit=" plots"):
+        pair_prefix = f"{ref_id}__vs__{qry_id}"
+        delta_file = os.path.join(nucmer_work_dir, f"{pair_prefix}.delta")
+
+        if not os.path.exists(delta_file):
+            os.makedirs(nucmer_work_dir, exist_ok=True)
+            cmd = ["nucmer", "-p", os.path.join(nucmer_work_dir, pair_prefix),
+                   "-t", str(n_threads)]
+            if nucmer_options:
+                cmd.extend(nucmer_options.split())
+            cmd.extend([
+                genome_id_to_decompressed[ref_id],
+                genome_id_to_decompressed[qry_id]
+            ])
+            step = RunShellCommand(
+                command=cmd,
+                name=f"nucmer_dotplot:{pair_prefix}",
+            ).run()
+            _check_status_quiet(step, expected_outputs=[delta_file])
+
+        dotplot_prefix = os.path.join(dotplot_dir, pair_prefix)
+        cmd = [
+            "mummerplot", delta_file,
+            "-p", dotplot_prefix,
+            "-t", dotplot_format,
+            "--large",
+        ]
+        step = RunShellCommand(
+            command=cmd,
+            name=f"mummerplot:{pair_prefix}",
+        ).run()
+        _check_status_quiet(step)
+
+    logger.info(f"Generated {len(passing_pairs)} dot plots in {dotplot_dir}")
+
+
 def register_parser(subparsers):
     """Register the cluster-genomes subcommand parser"""
     parser = subparsers.add_parser(
         'cluster-genomes',
-        help='Cluster genomes into pangenomes using skani',
-        description='Cluster genomes into pangenomes based on Average Nucleotide Identity (ANI)',
+        help='Cluster genomes into pangenomes using skani or nucmer',
+        description='Cluster genomes into pangenomes based on Average Nucleotide Identity (ANI)\n'
+                    'Supports two backends: skani (fast, default) and nucmer (MUMmer4, pairwise)',
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -224,14 +506,48 @@ def register_parser(subparsers):
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
     parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads [Default: 1]")
-    
+    parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
+
+    # Algorithm selection
+    parser_algorithm = parser.add_argument_group('Algorithm selection')
+    parser_algorithm.add_argument("--genome_clustering_algorithm", type=str, default="skani",
+        choices=["skani", "nucmer"],
+        help="Algorithm for genome clustering:\n"
+             "  skani:   Fast ANI via skani triangle (default)\n"
+             "  nucmer:  ANI via MUMmer4 nucmer + dnadiff (pairwise)\n"
+             "[Default: skani]")
+
+    # ANI threshold arguments (shared by both backends)
+    parser_ani = parser.add_argument_group('ANI threshold arguments')
+    parser_ani.add_argument("--ani_threshold", type=float, default=95.0, help="ANI threshold [Default: 95.0]")
+    parser_ani.add_argument("--minimum_af", type=float, default=50.0, help="Minimum alignment fraction [Default: 50.0]")
+    parser_ani.add_argument("--af_mode", type=str, default="relaxed", choices=["relaxed", "strict"], help="AF mode [Default: relaxed]")
+
     # Skani arguments
-    parser_skani = parser.add_argument_group('Skani arguments')
-    parser_skani.add_argument("--ani_threshold", type=float, default=95.0, help="ANI threshold [Default: 95.0]")
-    parser_skani.add_argument("--minimum_af", type=float, default=50.0, help="Minimum alignment fraction [Default: 50.0]")
-    parser_skani.add_argument("--af_mode", type=str, default="relaxed", choices=["relaxed", "strict"], help="AF mode [Default: relaxed]")
+    parser_skani = parser.add_argument_group('Skani arguments (only with --genome_clustering_algorithm skani)')
     parser_skani.add_argument("--skani_preset", type=str, help="Skani preset")
     parser_skani.add_argument("--skani_options", type=str, default="", help="Additional skani options")
+
+    # Nucmer arguments
+    parser_nucmer = parser.add_argument_group('Nucmer arguments (only with --genome_clustering_algorithm nucmer)')
+    parser_nucmer.add_argument("--nucmer_options", type=str, default="",
+        help="Additional nucmer options (e.g., '--maxmatch')")
+    parser_nucmer.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1,
+        help="Number of concurrent nucmer pairwise comparisons [Default: 1]")
+    parser_nucmer.add_argument("--nucmer_identity_type", type=str, default="1-to-1",
+        choices=["1-to-1", "M-to-M"],
+        help="Which dnadiff AvgIdentity to use as ANI:\n"
+             "  1-to-1: Best bidirectional alignment identity (conservative)\n"
+             "  M-to-M: Many-to-many alignment identity (more permissive)\n"
+             "[Default: 1-to-1]")
+
+    # Dot plot arguments (both backends)
+    parser_dotplot = parser.add_argument_group('Dot plot arguments')
+    parser_dotplot.add_argument("--generate_dotplots", action="store_true",
+        help="Generate mummerplot dot plots for threshold-passing genome pairs")
+    parser_dotplot.add_argument("--dotplot_format", type=str, default="pdf",
+        choices=["pdf", "png", "ps", "svg"],
+        help="Dot plot output format [Default: pdf]")
     
     # Clustering arguments
     parser_clustering = parser.add_argument_group('Clustering arguments')
@@ -251,32 +567,32 @@ def register_parser(subparsers):
 
 def run(args):
     """Execute cluster-genomes command"""
-    
+
     if args.n_threads == -1:
         args.n_threads = cpu_count()
-    
+
     # Validate organism code usage
     if args.prepend_organism_code and not args.organism_type:
         logger.error("--prepend_organism_code requires --organism_type to be specified")
         return 1
-    
+
     # Prepend organism code to cluster prefix if requested
     cluster_prefix = args.cluster_prefix
     if args.prepend_organism_code and args.organism_type:
         organism_code = args.organism_type[0].upper()  # P, E, or V
         cluster_prefix = organism_code + cluster_prefix
         logger.info(f"Prepending organism code '{organism_code}' to cluster prefix: {cluster_prefix}")
-    
+
     # Setup directories with command-specific subdirectory
     directories = setup_directories(args.output_directory, subdirectory="genome_clustering")
-    
+
     # Create additional output subdirectories
     os.makedirs(os.path.join(directories["output"], "serialization"), exist_ok=True)
     os.makedirs(os.path.join(directories["output"], "representatives"), exist_ok=True)
-    
+
     # Setup logger
     setup_logger(directories["log"], "cluster_genomes.log")
-    
+
     # Print info
     logger.info("="*80)
     logger.info("pangenomium cluster-genomes")
@@ -285,123 +601,153 @@ def run(args):
         version=__version__,
         n_jobs=args.n_threads,
         additional_info={
+            "Algorithm": args.genome_clustering_algorithm,
             "ANI threshold": args.ani_threshold,
             "Minimum AF": args.minimum_af,
         }
     )
-    
+
     # Parse input
     logger.info("-"*80)
     logger.info("Parsing input")
     logger.info("-"*80)
     input_source = "stdin" if args.input in ["stdin", "-"] else args.input
     logger.info(f"Input source: {input_source}")
-    
+
     genome_id_to_filepath = parse_input(args.input, args.genome_extension)
     logger.info(f"Genomes: {len(genome_id_to_filepath)}")
 
-    # Create symlinks if genome IDs don't match filename basenames
-    genome_id_to_filepath_for_skani, used_symlinks = create_genome_symlinks(
-        genome_id_to_filepath, directories["tmp"]
-    )
-    if used_symlinks:
-        logger.info("Created genome symlinks (genome IDs differ from filenames)")
-
-    # Write genome list (filepaths for skani) - uses symlink paths if created
-    genome_list_filepath = os.path.join(directories["intermediate"], "genome_list.txt")
-    with open(genome_list_filepath, "w") as f:
-        for genome_id, filepath in genome_id_to_filepath_for_skani.items():
-            print(filepath, file=f)
-    
-    # Write genome identifiers list (for edgelist-to-clusters)
+    # Write genome identifiers list (shared by both backends, used by edgelist-to-clusters)
     genome_identifiers_filepath = os.path.join(directories["intermediate"], "genome_identifiers.list")
     with open(genome_identifiers_filepath, "w") as f:
         for genome_id in genome_id_to_filepath.keys():
             print(genome_id, file=f)
-    
+
     logger.info("")
-    
-    # ==================
-    # Step 1: Run skani
-    # ==================
-    logger.info("="*80)
-    logger.info("Step 1: Running skani triangle")
-    logger.info("="*80)
-    
-    ani_edgelist = os.path.join(directories["intermediate"], "skani-triangle_results.tsv")
-    
-    cmd = [
-        "skani", "triangle",
-        "-l", genome_list_filepath,
-        "-E",
-        "-t", str(args.n_threads),
-        "-o", ani_edgelist,
-    ]
-    
-    if args.skani_preset:
-        cmd.extend(["--preset", args.skani_preset])
-    
-    if args.skani_options:
-        cmd.append(args.skani_options)
-    
-    # Execute
-    step = RunShellCommand(
-        command=cmd,
-        name="skani",
-        validate_output_filepaths=[ani_edgelist]
-    ).run()
-    step.check_status()
-    logger.info("")
-    
-    # Preprocess skani output: extract first 5 columns and remove header
-    logger.info("Preprocessing skani output (extracting columns 1-5)")
+
+    # Paths used by both branches
     ani_edgelist_processed = os.path.join(directories["intermediate"], "ani_edgelist_processed.tsv")
-    
-    # Use pandas to extract columns and skip header
-    import pandas as pd
-    df_ani = pd.read_csv(ani_edgelist, sep="\t", usecols=[0,1,2,3,4])
-    df_ani.to_csv(ani_edgelist_processed, sep="\t", index=False, header=False)
-    logger.info(f"Processed: {df_ani.shape[0]} edges")
-    logger.info("")
-    
+    nucmer_work_dir = os.path.join(directories["intermediate"], "nucmer_results")
+
+    # ==========================================
+    # Step 1: Compute all-vs-all ANI
+    # ==========================================
+    if args.genome_clustering_algorithm == "skani":
+        # --- Skani backend ---
+        logger.info("="*80)
+        logger.info("Step 1: Running skani triangle")
+        logger.info("="*80)
+
+        # Create symlinks if genome IDs don't match filename basenames
+        genome_id_to_filepath_for_skani, used_symlinks = create_genome_symlinks(
+            genome_id_to_filepath, directories["tmp"]
+        )
+        if used_symlinks:
+            logger.info("Created genome symlinks (genome IDs differ from filenames)")
+
+        # Write genome list (filepaths for skani)
+        genome_list_filepath = os.path.join(directories["intermediate"], "genome_list.txt")
+        with open(genome_list_filepath, "w") as f:
+            for genome_id, filepath in genome_id_to_filepath_for_skani.items():
+                print(filepath, file=f)
+
+        ani_edgelist = os.path.join(directories["intermediate"], "skani-triangle_results.tsv")
+
+        cmd = [
+            "skani", "triangle",
+            "-l", genome_list_filepath,
+            "-E",
+            "-t", str(args.n_threads),
+            "-o", ani_edgelist,
+        ]
+
+        if args.skani_preset:
+            cmd.extend(["--preset", args.skani_preset])
+
+        if args.skani_options:
+            cmd.append(args.skani_options)
+
+        step = RunShellCommand(
+            command=cmd,
+            name="skani",
+            validate_output_filepaths=[ani_edgelist]
+        ).run()
+        step.check_status()
+        logger.info("")
+
+        # Preprocess skani output: extract first 5 columns and remove header
+        logger.info("Preprocessing skani output (extracting columns 1-5)")
+        df_ani = pd.read_csv(ani_edgelist, sep="\t", usecols=[0,1,2,3,4])
+        df_ani.to_csv(ani_edgelist_processed, sep="\t", index=False, header=False)
+        logger.info(f"Processed: {df_ani.shape[0]} edges")
+        logger.info("")
+
+    elif args.genome_clustering_algorithm == "nucmer":
+        # --- Nucmer backend ---
+        logger.info("="*80)
+        logger.info("Step 1: Running nucmer + dnadiff pairwise comparisons")
+        logger.info("="*80)
+
+        os.makedirs(nucmer_work_dir, exist_ok=True)
+
+        # Decompress .gz genomes (nucmer cannot read gzipped FASTA)
+        genome_id_to_decompressed = decompress_genomes(
+            genome_id_to_filepath, directories["tmp"]
+        )
+
+        run_nucmer_all_vs_all(
+            genome_id_to_filepath=genome_id_to_decompressed,
+            work_dir=nucmer_work_dir,
+            output_edgelist=ani_edgelist_processed,
+            nucmer_options=args.nucmer_options,
+            identity_type=args.nucmer_identity_type,
+            n_threads_per_task=args.n_threads,
+            n_concurrent_tasks=args.n_concurrent_nucmer_tasks,
+        )
+
+        # Archive nucmer intermediate files by type
+        logger.info("Archiving nucmer intermediate files")
+        archive_nucmer_results(nucmer_work_dir, os.path.join(directories["intermediate"], "archives"))
+        logger.info("")
+
     # ========================
     # Step 2: Compile clusters
     # ========================
     logger.info("="*80)
     logger.info("Step 2: Compiling genome clusters")
     logger.info("="*80)
-    
+
     genome_clusters = os.path.join(directories["output"], "genomes_to_pangenomes.tsv.gz")
-    
+
     cmd = [
         "edgelist-to-clusters.py",
         "-i", ani_edgelist_processed,
         "-o", genome_clusters,
-        "--basename",  # Use basename of paths for matching
         "-t", str(args.ani_threshold),
         "-a", str(args.minimum_af),
         "-m", args.af_mode,
-        "--cluster_prefix", cluster_prefix,  # Use cluster_prefix (potentially with organism code prepended)
+        "--cluster_prefix", cluster_prefix,
         "--cluster_prefix_zfill", str(args.cluster_prefix_zfill),
         "--cluster_label_mode", args.cluster_label_mode,
-        "--identifiers", genome_identifiers_filepath,  # Provide correct IDs
+        "--identifiers", genome_identifiers_filepath,
         "-g", os.path.join(directories["output"], "serialization", "genome_clusters.graph.pkl.gz"),
         "-d", os.path.join(directories["output"], "serialization", "genome_clusters.dict.pkl.gz"),
         "-r", os.path.join(directories["output"], "representatives", "genome_representatives.tsv.gz"),
     ]
-    
-    # Only add cluster_suffix if non-empty
+
+    # skani outputs filepaths in the edge list; nucmer outputs genome IDs directly
+    if args.genome_clustering_algorithm == "skani":
+        cmd.append("--basename")
+
     if args.cluster_suffix:
         cmd.extend(["--cluster_suffix", args.cluster_suffix])
-    
+
     if args.no_singletons:
         cmd.append("--no_singletons")
-    
-    # Note: --identifiers is already added above, don't duplicate
+
     if args.identifiers:
         logger.warning("Ignoring --identifiers argument, using auto-generated identifiers list")
-    
-    # Execute
+
     step = RunShellCommand(
         command=cmd,
         name="compile",
@@ -409,7 +755,64 @@ def run(args):
     ).run()
     step.check_status()
     logger.info("")
-    
+
+    # ==============================
+    # Step 3: Dot plots (optional)
+    # ==============================
+    if args.generate_dotplots:
+        logger.info("="*80)
+        logger.info("Step 3: Generating dot plots")
+        logger.info("="*80)
+
+        # Read the edge list and filter by thresholds
+        df_edges = pd.read_csv(ani_edgelist_processed, sep="\t", header=None,
+                               names=["id_1", "id_2", "ANI", "AF_ref", "AF_query"])
+
+        # For skani, the first two columns are filepaths — convert to genome IDs
+        if args.genome_clustering_algorithm == "skani":
+            df_edges["id_1"] = df_edges["id_1"].apply(get_basename_from_filepath)
+            df_edges["id_2"] = df_edges["id_2"].apply(get_basename_from_filepath)
+
+        # Apply threshold filtering (same logic as edgelist-to-clusters.py)
+        mask_ani = df_edges["ANI"] >= args.ani_threshold
+        if args.af_mode == "relaxed":
+            mask_af = df_edges[["AF_ref", "AF_query"]].max(axis=1) >= args.minimum_af
+        else:
+            mask_af = (df_edges["AF_ref"] >= args.minimum_af) & (df_edges["AF_query"] >= args.minimum_af)
+
+        df_passing = df_edges[mask_ani & mask_af]
+        passing_pairs = list(zip(df_passing["id_1"], df_passing["id_2"]))
+
+        if len(passing_pairs) > 0:
+            # Decompress genomes if needed (for nucmer to generate delta files)
+            genome_id_to_decompressed = decompress_genomes(
+                genome_id_to_filepath, directories["tmp"]
+            )
+
+            dotplot_dir = os.path.join(directories["output"], "dotplots")
+            generate_dotplots(
+                passing_pairs=passing_pairs,
+                genome_id_to_decompressed=genome_id_to_decompressed,
+                nucmer_work_dir=nucmer_work_dir,
+                dotplot_dir=dotplot_dir,
+                dotplot_format=args.dotplot_format,
+                nucmer_options=getattr(args, 'nucmer_options', ''),
+                n_threads=args.n_threads,
+            )
+
+            # Archive auxiliary files (.gp, .fplot, .rplot) from dotplot directory
+            archive_dotplot_auxiliary_files(dotplot_dir)
+        else:
+            logger.info("No pairs passed thresholds, skipping dot plot generation")
+        logger.info("")
+
+    # ==============================
+    # Cleanup temporary directories
+    # ==============================
+    if not args.keep_temporary and os.path.exists(directories["tmp"]):
+        logger.info("Removing temporary directory: {}".format(directories["tmp"]))
+        shutil.rmtree(directories["tmp"], ignore_errors=True)
+
     logger.info("="*80)
     logger.info("Complete")
     logger.info("="*80)

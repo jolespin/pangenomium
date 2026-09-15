@@ -149,18 +149,31 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("--n_threads_skani", type=int, default=1, help="Threads for genome clustering (skani) [Default: 1]")
+    parser_utility.add_argument("--n_threads_ani", type=int, default=1, help="Threads for genome clustering (ANI computation) [Default: 1]")
     parser_utility.add_argument("--n_threads_mmseqs_per_task", type=int, default=1, help="Threads per MMseqs2 task [Default: 1]")
     parser_utility.add_argument("--n_concurrent_mmseqs_tasks", type=int, default=1, help="Number of pangenomes to process in parallel [Default: 1]")
     parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
-    
+
     # Genome clustering arguments
     parser_genome = parser.add_argument_group('Genome clustering arguments')
+    parser_genome.add_argument("--genome_clustering_algorithm", type=str, default="skani",
+        choices=["skani", "nucmer"],
+        help="Algorithm for genome clustering:\n"
+             "  skani:   Fast ANI via skani triangle (default)\n"
+             "  nucmer:  ANI via MUMmer4 nucmer + dnadiff (pairwise)\n"
+             "[Default: skani]")
     parser_genome.add_argument("--ani_threshold", type=float, default=95.0, help="ANI threshold [Default: 95.0]")
     parser_genome.add_argument("--minimum_af", type=float, default=50.0, help="Minimum AF [Default: 50.0]")
     parser_genome.add_argument("--af_mode", type=str, default="relaxed", choices=["relaxed", "strict"], help="AF mode [Default: relaxed]")
-    parser_genome.add_argument("--skani_preset", type=str, help="Skani preset")
-    parser_genome.add_argument("--skani_options", type=str, default="", help="Additional skani options")
+    parser_genome.add_argument("--skani_preset", type=str, help="Skani preset (only with --genome_clustering_algorithm skani)")
+    parser_genome.add_argument("--skani_options", type=str, default="", help="Additional skani options (only with --genome_clustering_algorithm skani)")
+    parser_genome.add_argument("--nucmer_options", type=str, default="", help="Additional nucmer options (only with --genome_clustering_algorithm nucmer)")
+    parser_genome.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1, help="Concurrent nucmer pairwise comparisons [Default: 1]")
+    parser_genome.add_argument("--nucmer_identity_type", type=str, default="1-to-1",
+        choices=["1-to-1", "M-to-M"], help="dnadiff identity type [Default: 1-to-1]")
+    parser_genome.add_argument("--generate_dotplots", action="store_true", help="Generate dot plots for threshold-passing genome pairs")
+    parser_genome.add_argument("--dotplot_format", type=str, default="pdf",
+        choices=["pdf", "png", "ps", "svg"], help="Dot plot format [Default: pdf]")
     parser_genome.add_argument("--organism_type", type=str, choices=["prokaryotic", "eukaryotic", "viral"], help="Organism type (required with --prepend_organism_code)")
     parser_genome.add_argument("--prepend_organism_code", action="store_true", help="Prepend organism code to genome cluster prefix (P/E/V)")
     parser_genome.add_argument("--genome_cluster_prefix", type=str, default="SLC-", help="Genome cluster prefix [Default: 'SLC-']")
@@ -194,8 +207,8 @@ def run(args):
     """Execute end-to-end command with comprehensive output generation"""
     
     # Handle -1 (use all CPUs)
-    if args.n_threads_skani == -1:
-        args.n_threads_skani = cpu_count()
+    if args.n_threads_ani == -1:
+        args.n_threads_ani = cpu_count()
     if args.n_threads_mmseqs_per_task == -1:
         args.n_threads_mmseqs_per_task = cpu_count()
     if args.n_concurrent_mmseqs_tasks == -1:
@@ -222,7 +235,7 @@ def run(args):
     logger.info("="*80)
     print_header(
         version=__version__,
-        n_jobs=f"Genome: {args.n_threads_skani} threads | Protein: {args.n_concurrent_mmseqs_tasks} concurrent × {args.n_threads_mmseqs_per_task} threads",
+        n_jobs=f"Genome: {args.n_threads_ani} threads ({args.genome_clustering_algorithm}) | Protein: {args.n_concurrent_mmseqs_tasks} concurrent × {args.n_threads_mmseqs_per_task} threads",
         additional_info={"Mode": args.mode}
     )
     
@@ -305,25 +318,37 @@ def run(args):
         "pangenomium", "cluster-genomes",
         "-i", genome_manifest,
         "-o", genome_clustering_dir,
-        "--n_threads", str(args.n_threads_skani),
+        "--genome_clustering_algorithm", args.genome_clustering_algorithm,
+        "--n_threads", str(args.n_threads_ani),
         "--ani_threshold", str(args.ani_threshold),
         "--minimum_af", str(args.minimum_af),
         "--af_mode", args.af_mode,
         "--cluster_prefix", args.genome_cluster_prefix,
         "--cluster_label_mode", args.cluster_label_mode,
     ]
-    
+
     if args.organism_type:
         cmd.extend(["--organism_type", args.organism_type])
     if args.prepend_organism_code:
         cmd.append("--prepend_organism_code")
-    if args.skani_preset:
-        cmd.extend(["--skani_preset", args.skani_preset])
-    if args.skani_options:
-        cmd.extend(["--skani_options", args.skani_options])
+    if args.genome_clustering_algorithm == "skani":
+        if args.skani_preset:
+            cmd.extend(["--skani_preset", args.skani_preset])
+        if args.skani_options:
+            cmd.extend(["--skani_options", args.skani_options])
+    elif args.genome_clustering_algorithm == "nucmer":
+        if args.nucmer_options:
+            cmd.extend(["--nucmer_options", args.nucmer_options])
+        cmd.extend(["--n_concurrent_nucmer_tasks", str(args.n_concurrent_nucmer_tasks)])
+        cmd.extend(["--nucmer_identity_type", args.nucmer_identity_type])
+    if args.generate_dotplots:
+        cmd.append("--generate_dotplots")
+        cmd.extend(["--dotplot_format", args.dotplot_format])
     if args.no_singletons:
         cmd.append("--no_singletons")
-    
+    # Let end-to-end manage cleanup; don't let sub-commands remove tmp prematurely
+    cmd.append("--keep_temporary")
+
     step = RunShellCommand(
         command=cmd,
         name="cluster_genomes",
@@ -395,7 +420,8 @@ def run(args):
             cmd.extend(["--mmseqs2_options", args.mmseqs2_options])
         if args.no_singletons:
             cmd.append("--no_singletons")
-        
+        cmd.append("--keep_temporary")
+
         step = RunShellCommand(
             command=cmd,
             name="cluster_proteins",
@@ -442,7 +468,7 @@ def run(args):
         genome_clustering_intermediate = os.path.join(directories["project"], "genome_clustering", "intermediate")
         if os.path.exists(genome_clustering_tmp):
             cleanup_dirs.append(genome_clustering_tmp)
-        # Keep genome_clustering/intermediate/ — contains skani output files useful for debugging
+        # Keep genome_clustering/intermediate/ — contains ANI output files useful for debugging
         
         # Protein clustering tmp and intermediate
         if has_proteins:

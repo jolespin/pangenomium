@@ -4,6 +4,7 @@ import sys
 import os
 import argparse
 import gzip
+import shutil
 from multiprocessing import cpu_count
 from loguru import logger
 from pyexeggutor import RunShellCommand, format_header
@@ -114,6 +115,7 @@ def register_parser(subparsers):
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
     parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads [Default: 1]")
+    parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
     
     # MMseqs2 arguments
     parser_mmseqs = parser.add_argument_group('MMseqs2 arguments')
@@ -260,7 +262,12 @@ def run(args):
     ).run()
     step.check_status()
     logger.info("")
-    
+
+    # Cleanup temporary directories
+    if not args.keep_temporary and os.path.exists(directories["tmp"]):
+        logger.info("Removing temporary directory: {}".format(directories["tmp"]))
+        shutil.rmtree(directories["tmp"], ignore_errors=True)
+
     logger.info("="*80)
     logger.info("Complete")
     logger.info("="*80)

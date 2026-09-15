@@ -1,2 +1,4 @@
 skani
 mmseqs2
+mummer4
+gnuplot

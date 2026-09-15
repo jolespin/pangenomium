@@ -1,6 +1,6 @@
 # Pangenomium
 
-Scalable pangenomics toolkit for clustering genomes and proteins across large datasets.
+Scalable pangenomics toolkit for clustering genomes and proteins across large datasets
 
 > [!CAUTION]
 > This project is in developmental stages and designed to reproduce the outputs of [VEBA's clustering module](https://github.com/jolespin/veba/blob/main/bin/cluster.py).
@@ -9,7 +9,7 @@ Scalable pangenomics toolkit for clustering genomes and proteins across large da
 ## Installation
 
 ```bash
-mamba create -n pangenomium -c conda-forge -c bioconda skani mmseqs2 setuptools 'python>=3.9' -y
+mamba create -n pangenomium -c conda-forge -c bioconda skani mmseqs2 mummer4 gnuplot setuptools 'python>=3.9' -y
 mamba activate pangenomium
 pip install pangenomium
 ```
@@ -17,6 +17,8 @@ pip install pangenomium
 ## Dependencies
 * [skani](https://github.com/bluenote-1577/skani)
 * [mmseqs2](https://github.com/soedinglab/MMseqs2)
+* [mummer4](https://github.com/mummer4/mummer)
+* [gnuplot](http://www.gnuplot.info/) (required by mummerplot for dot plot rendering)
 
 ## Citations
 The methodology used for dereplicating genomes into pangenomes and proteins into orthologs was initially published in [VEBA 2.0](https://academic.oup.com/nar/article/52/14/e63/7697622) which uses [skani](https://www.nature.com/articles/s41592-023-02018-3) for pairwise ANI and [MMseqs2](https://www.nature.com/articles/nbt.3988) for protein clustering.
@@ -27,8 +29,11 @@ The methodology used for dereplicating genomes into pangenomes and proteins into
 
 * Steinegger, M., Söding, J. MMseqs2 enables sensitive protein sequence searching for the analysis of massive data sets. Nat Biotechnol 35, 1026–1028 (2017). https://doi.org/10.1038/nbt.3988
 
+* Marçais G, Delcher AL, Phillippy AM, Coston R, Salzberg SL, Zimin A. MUMmer4: A fast and versatile genome alignment system. PLoS computational biology. 2018 Jan 26;14(1):e1005944.
 
 ## Quick Start
+> [!NOTE]
+> Recommended approach is to use `--genome_clustering_algorithm skani` for larger datasets and `nucmer` for smaller datasets where precision matters
 
 ```bash
 # End-to-end workflow
@@ -36,7 +41,7 @@ pangenomium end-to-end \
   -i genomes_table.tsv \
   --mode veba \
   -o output_directory \
-  --n_threads_skani 8 \
+  --n_threads_ani 8 \
   --n_concurrent_mmseqs_tasks 4
 
 # Or run individual steps
@@ -51,14 +56,25 @@ pangenomium cluster-proteins-from-pangenomes \
 
 ### cluster-genomes
 
-Cluster genomes by ANI using skani.
+Cluster genomes by ANI using skani (default) or nucmer.
 
 ```bash
+# Using skani (default, fast)
 pangenomium cluster-genomes \
   -i INPUT \
   -o OUTPUT_DIR \
   --n_threads 8 \
   --ani_threshold 95.0
+
+# Using nucmer (pairwise, with dot plots)
+pangenomium cluster-genomes \
+  -i INPUT \
+  -o OUTPUT_DIR \
+  --genome_clustering_algorithm nucmer \
+  --n_threads 2 \
+  --n_concurrent_nucmer_tasks 4 \
+  --ani_threshold 95.0 \
+  --generate_dotplots
 ```
 
 **Input formats:**
@@ -71,6 +87,40 @@ pangenomium cluster-genomes \
 - `serialization/genome_clusters.graph.pkl.gz` - NetworkX graph of genome relationships
 - `serialization/genome_clusters.dict.pkl.gz` - Dictionary mapping genomes to clusters
 - `representatives/genome_representatives.tsv.gz` - Representative genome for each cluster
+- `dotplots/` - Dot plot images (only when `--generate_dotplots` is used; auxiliary files archived as `dotplot_auxiliary_files.tar.gz`)
+
+Temporary files (decompressed genomes, symlinks) in `tmp/` are removed by default after completion. Use `--keep_temporary` to retain them.
+
+**Intermediate files** (in `intermediate/genome_clustering/`):
+
+The ANI edge list (`ani_edgelist_processed.tsv`) is a headerless 5-column TSV used for clustering:
+
+| Column | Description |
+|--------|-------------|
+| 1 | Reference genome (filepath for skani, genome ID for nucmer) |
+| 2 | Query genome (filepath for skani, genome ID for nucmer) |
+| 3 | ANI — Average Nucleotide Identity (%) |
+| 4 | AF_ref — Alignment fraction of reference genome (%) |
+| 5 | AF_query — Alignment fraction of query genome (%) |
+
+For skani, this is derived from `skani-triangle_results.tsv` (first 5 columns, header stripped). For nucmer, values are extracted from dnadiff reports: ANI from `AvgIdentity` (1-to-1 or M-to-M) and alignment fractions from `AlignedBases` percentages.
+
+When using the nucmer backend, per-pair intermediate files are automatically archived by type in `intermediate/genome_clustering/archives/`:
+
+| Archive | Contents |
+|---------|----------|
+| `nucmer_results.delta.tar.gz` | `.delta` — raw nucmer alignments |
+| `nucmer_results.filtered_delta.tar.gz` | `.1delta`, `.mdelta` — filtered alignments |
+| `nucmer_results.reports.tar.gz` | `.report` — dnadiff summary stats |
+| `nucmer_results.coords.tar.gz` | `.1coords`, `.mcoords` — alignment coordinates |
+| `nucmer_results.snps.tar.gz` | `.snps` — SNP calls |
+| `nucmer_results.diff.tar.gz` | `.rdiff`, `.qdiff`, `.unref`, `.unqry` — breakpoints and unaligned regions |
+
+When dot plots are generated, mummerplot auxiliary files are archived in `output/dotplots/`:
+
+| Archive | Contents |
+|---------|----------|
+| `dotplot_auxiliary_files.tar.gz` | `.gp`, `.fplot`, `.rplot` — gnuplot scripts and plot data files |
 
 ### cluster-proteins
 
@@ -118,7 +168,7 @@ pangenomium end-to-end \
   -i genomes_table.tsv \
   --mode veba \
   -o OUTPUT_DIR \
-  --n_threads_skani 8 \
+  --n_threads_ani 8 \
   --n_concurrent_mmseqs_tasks 4
 ```
 
@@ -217,9 +267,13 @@ Per-pangenome matrices in `pangenome_tables/`:
 ## Algorithm Details
 
 **Genome clustering:**
-- Uses skani for fast ANI calculation
-- Clusters with edgelist-to-clusters.py using relaxed mode (single-linkage)
-- Default: 95% ANI, 50% alignment fraction
+- Two backends available via `--genome_clustering_algorithm`:
+  - `skani` (default): Fast all-vs-all ANI via `skani triangle`. Best for large datasets.
+  - `nucmer`: Pairwise ANI via MUMmer4 `nucmer` + `dnadiff`. Better precision for smaller datasets; enables dot plot visualization.
+- Both backends produce the same 5-column ANI edge list (see intermediate files above)
+- Clusters with `edgelist-to-clusters.py` using connected components (single-linkage)
+- Default thresholds: 95% ANI, 50% alignment fraction (relaxed mode: max of ref/query AF must pass)
+- Dot plots (`--generate_dotplots`): Available with either backend (default format: PDF). For skani, nucmer is run post-hoc on threshold-passing pairs only. Auxiliary files (`.gp`, `.fplot`, `.rplot`) are archived automatically.
 
 **Protein clustering:**
 - Uses MMseqs2 easy-cluster
@@ -227,7 +281,8 @@ Per-pangenome matrices in `pangenome_tables/`:
 - Default: 50% identity, 80% coverage (bidirectional)
 
 **Parallelization:**
-- Genome clustering: Multi-threaded skani
+- Genome clustering (skani): Multi-threaded via `--n_threads`
+- Genome clustering (nucmer): Concurrent pairwise comparisons via `--n_concurrent_nucmer_tasks`, each using `--n_threads` threads
 - Protein clustering: Multiple concurrent MMseqs2 jobs, each multi-threaded
 
 ## Common Workflows
@@ -238,7 +293,7 @@ pangenomium end-to-end \
   -i veba_output/genomes_table.tsv \
   --mode veba \
   -o pangenome_analysis \
-  --n_threads_skani 16 \
+  --n_threads_ani 16 \
   --n_concurrent_mmseqs_tasks 8 \
   --n_threads_mmseqs_per_task 4
 ```
