@@ -38,7 +38,7 @@ def _check_status_quiet(step, expected_outputs=None):
 
 
 def archive_nucmer_results(nucmer_work_dir, archive_dir):
-    """Create .tar.gz archives of nucmer intermediate files grouped by type."""
+    """Create .tar.gz archives of nucmer intermediate files grouped by type, then remove originals."""
     os.makedirs(archive_dir, exist_ok=True)
 
     file_groups = {
@@ -49,6 +49,8 @@ def archive_nucmer_results(nucmer_work_dir, archive_dir):
         "snps": [".snps"],
         "diff": [".rdiff", ".qdiff", ".unref", ".unqry"],
     }
+
+    all_archived_files = []
 
     for group_name, extensions in file_groups.items():
         matching_files = []
@@ -67,7 +69,16 @@ def archive_nucmer_results(nucmer_work_dir, archive_dir):
                     os.path.join(nucmer_work_dir, fname),
                     arcname=fname,
                 )
+        all_archived_files.extend(matching_files)
         logger.info(f"Archived {len(matching_files)} files → {os.path.basename(archive_path)}")
+
+    for fname in all_archived_files:
+        os.remove(os.path.join(nucmer_work_dir, fname))
+
+    if os.path.exists(nucmer_work_dir) and not os.listdir(nucmer_work_dir):
+        os.rmdir(nucmer_work_dir)
+
+    logger.info(f"Removed {len(all_archived_files)} archived source files from {os.path.basename(nucmer_work_dir)}")
 
 
 def get_basename_from_filepath(filepath):
@@ -705,9 +716,6 @@ def run(args):
             n_concurrent_tasks=args.n_concurrent_nucmer_tasks,
         )
 
-        # Archive nucmer intermediate files by type
-        logger.info("Archiving nucmer intermediate files")
-        archive_nucmer_results(nucmer_work_dir, os.path.join(directories["intermediate"], "archives"))
         logger.info("")
 
     # ========================
@@ -804,6 +812,14 @@ def run(args):
             archive_dotplot_auxiliary_files(dotplot_dir)
         else:
             logger.info("No pairs passed thresholds, skipping dot plot generation")
+        logger.info("")
+
+    # ==============================
+    # Archive nucmer results
+    # ==============================
+    if os.path.exists(nucmer_work_dir) and os.listdir(nucmer_work_dir):
+        logger.info("Archiving nucmer intermediate files")
+        archive_nucmer_results(nucmer_work_dir, os.path.join(directories["intermediate"], "archives"))
         logger.info("")
 
     # ==============================
