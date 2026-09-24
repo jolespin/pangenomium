@@ -149,9 +149,10 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("--n_threads_ani", type=int, default=1, help="Threads for genome clustering (ANI computation) [Default: 1]")
+    parser_utility.add_argument("--n_threads_ani", type=int, default=1, help="Threads for ANI computation. For skani, all pairwise ANI comparisons are computed in a single operation using this many threads. For nucmer, this sets threads per pairwise comparison; use --n_concurrent_nucmer_tasks to run multiple comparisons simultaneously [Default: 1]")
     parser_utility.add_argument("--n_threads_mmseqs_per_task", type=int, default=1, help="Threads per MMseqs2 task [Default: 1]")
     parser_utility.add_argument("--n_concurrent_mmseqs_tasks", type=int, default=1, help="Number of pangenomes to process in parallel [Default: 1]")
+    parser_utility.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1, help="Concurrent nucmer pairwise comparisons [Default: 1]")
     parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
 
     # Genome clustering arguments
@@ -168,12 +169,11 @@ def register_parser(subparsers):
     parser_genome.add_argument("--skani_preset", type=str, help="Skani preset (only with --genome_clustering_algorithm skani)")
     parser_genome.add_argument("--skani_options", type=str, default="", help="Additional skani options (only with --genome_clustering_algorithm skani)")
     parser_genome.add_argument("--nucmer_options", type=str, default="", help="Additional nucmer options (only with --genome_clustering_algorithm nucmer)")
-    parser_genome.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1, help="Concurrent nucmer pairwise comparisons [Default: 1]")
     parser_genome.add_argument("--nucmer_identity_type", type=str, default="1-to-1",
         choices=["1-to-1", "M-to-M"], help="dnadiff identity type [Default: 1-to-1]")
-    parser_genome.add_argument("--generate_dotplots", action="store_true", help="Generate dot plots for threshold-passing genome pairs")
-    parser_genome.add_argument("--dotplot_format", type=str, default="pdf",
-        choices=["pdf", "png", "ps", "svg"], help="Dot plot format [Default: pdf]")
+    parser_genome.add_argument("--generate_dotplots", action="store_true", help="Generate dot plots for threshold-passing genome pairs (requires nucmer)")
+    parser_genome.add_argument("--dotplot_format", type=str, default="html",
+        choices=["html", "pdf", "png", "ps", "svg"], help="Dot plot format (html produces interactive Canvas plots) [Default: html]")
     parser_genome.add_argument("--organism_type", type=str, choices=["prokaryotic", "eukaryotic", "viral"], help="Organism type (required with --prepend_organism_code)")
     parser_genome.add_argument("--prepend_organism_code", action="store_true", help="Prepend organism code to genome cluster prefix (P/E/V)")
     parser_genome.add_argument("--genome_cluster_prefix", type=str, default="SLC-", help="Genome cluster prefix [Default: 'SLC-']")
@@ -213,8 +213,14 @@ def run(args):
         args.n_threads_mmseqs_per_task = cpu_count()
     if args.n_concurrent_mmseqs_tasks == -1:
         args.n_concurrent_mmseqs_tasks = cpu_count()
-    
+    if args.n_concurrent_nucmer_tasks == -1:
+        args.n_concurrent_nucmer_tasks = cpu_count()
+
     assert 0 < args.minimum_core_prevalence <= 1.0, "--minimum_core_prevalence must be (0.0, 1.0]"
+
+    if args.generate_dotplots and args.genome_clustering_algorithm == "skani":
+        logger.error("--generate_dotplots requires --genome_clustering_algorithm nucmer")
+        return 1
     
     # Setup directories (no subdirectory for end-to-end)
     directories = setup_directories(args.output_directory)

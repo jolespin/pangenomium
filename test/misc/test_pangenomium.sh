@@ -119,18 +119,6 @@ pangenomium cluster-genomes \
 echo "✓ Completed: test_outputs/02f_cluster_genomes_nucmer_dotplots"
 echo ""
 
-# 2g. Skani backend + dot plots (post-hoc nucmer for visualization)
-echo "2g. cluster-genomes with skani + dot plots..."
-pangenomium cluster-genomes \
-  -i test_inputs/batch_manifest.tsv \
-  -o test_outputs/02g_cluster_genomes_skani_dotplots \
-  --genome_clustering_algorithm skani \
-  --n_threads 4 \
-  --ani_threshold 95.0 \
-  --generate_dotplots
-echo "✓ Completed: test_outputs/02g_cluster_genomes_skani_dotplots"
-echo ""
-
 # ============================================
 # STEP 3: Test cluster-proteins
 # ============================================
@@ -336,16 +324,14 @@ echo ""
 
 # Check dot plot outputs
 echo "Dot plot outputs:"
-for dir in test_outputs/02f_cluster_genomes_nucmer_dotplots \
-           test_outputs/02g_cluster_genomes_skani_dotplots; do
-  if [ -d "$dir/output/dotplots" ]; then
-    n_plots=$(ls "$dir/output/dotplots/"*.pdf 2>/dev/null | wc -l)
-    has_archive=$(ls "$dir/output/dotplots/"dotplot_auxiliary_files.tar.gz 2>/dev/null | wc -l)
-    echo "  ✓ $dir: $n_plots dot plots (pdf), $has_archive auxiliary archive(s)"
-  else
-    echo "  - $dir: no dotplots directory (no pairs passed thresholds)"
-  fi
-done
+dir="test_outputs/02f_cluster_genomes_nucmer_dotplots"
+if [ -d "$dir/output/dotplots" ]; then
+  n_plots=$(ls "$dir/output/dotplots/"*.html 2>/dev/null | wc -l)
+  has_archive=$(ls "$dir/output/dotplots/"dotplot_auxiliary_files.tar.gz 2>/dev/null | wc -l)
+  echo "  ✓ $dir: $n_plots dot plots (html), $has_archive auxiliary archive(s)"
+else
+  echo "  - $dir: no dotplots directory (no pairs passed thresholds)"
+fi
 echo ""
 
 # Check custom genome ID output

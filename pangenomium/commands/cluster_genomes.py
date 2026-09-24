@@ -449,13 +449,15 @@ def archive_dotplot_auxiliary_files(dotplot_dir):
 
 
 def generate_dotplots(passing_pairs, genome_id_to_decompressed, nucmer_work_dir,
-                      dotplot_dir, dotplot_format="pdf", nucmer_options="", n_threads=1):
+                      dotplot_dir, dotplot_format="html", nucmer_options="", n_threads=1):
     """Generate dot plots for threshold-passing genome pairs.
 
-    For nucmer backend, delta files already exist in nucmer_work_dir.
-    For skani backend, runs nucmer first to produce delta files.
+    Delta files must already exist in nucmer_work_dir (nucmer backend).
     """
     os.makedirs(dotplot_dir, exist_ok=True)
+
+    # Map user-facing format to gnuplot terminal name
+    gnuplot_terminal = "canvas" if dotplot_format == "html" else dotplot_format
 
     for ref_id, qry_id in tqdm(passing_pairs, desc="Generating dot plots", unit=" plots"):
         pair_prefix = f"{ref_id}__vs__{qry_id}"
@@ -481,7 +483,7 @@ def generate_dotplots(passing_pairs, genome_id_to_decompressed, nucmer_work_dir,
         cmd = [
             "mummerplot", delta_file,
             "-p", dotplot_prefix,
-            "-t", dotplot_format,
+            "-t", gnuplot_terminal,
             "--large",
         ]
         step = RunShellCommand(
@@ -489,6 +491,13 @@ def generate_dotplots(passing_pairs, genome_id_to_decompressed, nucmer_work_dir,
             name=f"mummerplot:{pair_prefix}",
         ).run()
         _check_status_quiet(step)
+
+        # Rename .canvas to .html for user-friendly extension
+        if dotplot_format == "html":
+            canvas_file = f"{dotplot_prefix}.canvas"
+            html_file = f"{dotplot_prefix}.html"
+            if os.path.exists(canvas_file):
+                os.rename(canvas_file, html_file)
 
     logger.info(f"Generated {len(passing_pairs)} dot plots in {dotplot_dir}")
 
@@ -516,7 +525,9 @@ def register_parser(subparsers):
     
     # Utility arguments
     parser_utility = parser.add_argument_group('Utility arguments')
-    parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads [Default: 1]")
+    parser_utility.add_argument("--n_threads", type=int, default=1, help="Number of threads passed to the ANI tool. For skani, all pairwise ANI comparisons are computed in a single operation using this many threads. For nucmer, this sets threads per pairwise comparison; use --n_concurrent_nucmer_tasks to run multiple comparisons simultaneously [Default: 1]")
+    parser_utility.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1,
+        help="Number of concurrent nucmer pairwise comparisons. Total CPU usage is --n_threads × --n_concurrent_nucmer_tasks [Default: 1]")
     parser_utility.add_argument("--keep_temporary", action="store_true", help="Keep temporary directories (default: remove after completion)")
 
     # Algorithm selection
@@ -543,8 +554,6 @@ def register_parser(subparsers):
     parser_nucmer = parser.add_argument_group('Nucmer arguments (only with --genome_clustering_algorithm nucmer)')
     parser_nucmer.add_argument("--nucmer_options", type=str, default="",
         help="Additional nucmer options (e.g., '--maxmatch')")
-    parser_nucmer.add_argument("--n_concurrent_nucmer_tasks", type=int, default=1,
-        help="Number of concurrent nucmer pairwise comparisons [Default: 1]")
     parser_nucmer.add_argument("--nucmer_identity_type", type=str, default="1-to-1",
         choices=["1-to-1", "M-to-M"],
         help="Which dnadiff AvgIdentity to use as ANI:\n"
@@ -552,13 +561,13 @@ def register_parser(subparsers):
              "  M-to-M: Many-to-many alignment identity (more permissive)\n"
              "[Default: 1-to-1]")
 
-    # Dot plot arguments (both backends)
-    parser_dotplot = parser.add_argument_group('Dot plot arguments')
+    # Dot plot arguments (only with --genome_clustering_algorithm nucmer)
+    parser_dotplot = parser.add_argument_group('Dot plot arguments (only with --genome_clustering_algorithm nucmer)')
     parser_dotplot.add_argument("--generate_dotplots", action="store_true",
         help="Generate mummerplot dot plots for threshold-passing genome pairs")
-    parser_dotplot.add_argument("--dotplot_format", type=str, default="pdf",
-        choices=["pdf", "png", "ps", "svg"],
-        help="Dot plot output format [Default: pdf]")
+    parser_dotplot.add_argument("--dotplot_format", type=str, default="html",
+        choices=["html", "pdf", "png", "ps", "svg"],
+        help="Dot plot output format (html produces interactive Canvas plots) [Default: html]")
     
     # Clustering arguments
     parser_clustering = parser.add_argument_group('Clustering arguments')
@@ -581,6 +590,11 @@ def run(args):
 
     if args.n_threads == -1:
         args.n_threads = cpu_count()
+
+    # Validate dotplot + skani combination
+    if args.generate_dotplots and args.genome_clustering_algorithm == "skani":
+        logger.error("--generate_dotplots requires --genome_clustering_algorithm nucmer")
+        return 1
 
     # Validate organism code usage
     if args.prepend_organism_code and not args.organism_type:
@@ -775,11 +789,6 @@ def run(args):
         # Read the edge list and filter by thresholds
         df_edges = pd.read_csv(ani_edgelist_processed, sep="\t", header=None,
                                names=["id_1", "id_2", "ANI", "AF_ref", "AF_query"])
-
-        # For skani, the first two columns are filepaths — convert to genome IDs
-        if args.genome_clustering_algorithm == "skani":
-            df_edges["id_1"] = df_edges["id_1"].apply(get_basename_from_filepath)
-            df_edges["id_2"] = df_edges["id_2"].apply(get_basename_from_filepath)
 
         # Apply threshold filtering (same logic as edgelist-to-clusters.py)
         mask_ani = df_edges["ANI"] >= args.ani_threshold

@@ -173,8 +173,26 @@ pangenomium end-to-end \
 ```
 
 **Modes:**
-- `batch` - Expects 4-column format: `[organism_type, id_genome, genome_filepath, protein_filepath]`
-- `veba` - Expects 7-column VEBA format
+
+`batch` — 3, 4, or 5 columns (headerless TSV):
+
+| Columns | Format |
+|---------|--------|
+| 3 | `organism_type, id_genome, genome_filepath` (genome clustering only, no protein clustering) |
+| 4 | `organism_type, id_genome, genome_filepath, protein_filepath` |
+| 5 | `organism_type, id_genome, genome_filepath, protein_filepath, cds_filepath` |
+
+`veba` — 6+ columns (headerless TSV):
+
+| Column | Description |
+|--------|-------------|
+| 1 | `organism_type` |
+| 2 | `id_sample` |
+| 3 | `id_genome` |
+| 4 | `genome_filepath` |
+| 5 | `protein_filepath` |
+| 6 | `cds_filepath` |
+| 7+ | ignored |
 
 **Outputs:**
 
@@ -273,7 +291,7 @@ Per-pangenome matrices in `pangenome_tables/`:
 - Both backends produce the same 5-column ANI edge list (see intermediate files above)
 - Clusters with `edgelist-to-clusters.py` using connected components (single-linkage)
 - Default thresholds: 95% ANI, 50% alignment fraction (relaxed mode: max of ref/query AF must pass)
-- Dot plots (`--generate_dotplots`): Available with either backend (default format: PDF). For skani, nucmer is run post-hoc on threshold-passing pairs only. Auxiliary files (`.gp`, `.fplot`, `.rplot`) are archived automatically.
+- Dot plots (`--generate_dotplots`): Only available with nucmer backend (default format: interactive HTML via gnuplot canvas terminal). Auxiliary files (`.gp`, `.fplot`, `.rplot`) are archived automatically.
 
 **Protein clustering:**
 - Uses MMseqs2 easy-cluster
